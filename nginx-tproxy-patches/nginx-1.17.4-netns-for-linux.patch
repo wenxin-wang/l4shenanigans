@@ -1,0 +1,289 @@
+commit 8bba6517b78effe2eefa510136a6c3c0f596c73d
+Author: Wenxin Wang <i@wenxinwang.me>
+Date:   Mon Dec 30 16:45:14 2019 +0800
+
+    netns for linux
+
+diff --git a/auto/unix b/auto/unix
+index 09155d71..5b1aa109 100644
+--- a/auto/unix
++++ b/auto/unix
+@@ -487,6 +487,19 @@ ngx_feature_test="setsockopt(0, IPPROTO_IPV6, IPV6_RECVORIGDSTADDR, NULL, 0)"
+ . auto/feature
+ 
+ 
++# Linux setns
++
++ngx_feature="setns()"
++ngx_feature_name="NGX_HAVE_SETNS"
++ngx_feature_run=no
++ngx_feature_incs="#define _GNU_SOURCE
++                  #include <sched.h>"
++ngx_feature_path=
++ngx_feature_libs=
++ngx_feature_test="setns(0, 0)"
++. auto/feature
++
++
+ ngx_feature="TCP_DEFER_ACCEPT"
+ ngx_feature_name="NGX_HAVE_DEFERRED_ACCEPT"
+ ngx_feature_run=no
+diff --git a/src/core/ngx_connection.c b/src/core/ngx_connection.c
+index 8873d2e9..fedbef3b 100644
+--- a/src/core/ngx_connection.c
++++ b/src/core/ngx_connection.c
+@@ -487,7 +487,51 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
+                 continue;
+             }
+ 
++#if (NGX_HAVE_SETNS)
++            int orig_net_fd = -1;
++            do {
++                if (ls[i].netns == NULL) break;
++                char self_netns_path[PATH_MAX];
++                ngx_snprintf(self_netns_path, PATH_MAX, "/proc/%d/ns/net%Z", getpid());
++                orig_net_fd = open(self_netns_path, O_RDONLY);
++                if (orig_net_fd == -1) {
++                    ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
++                                  "setns %s failed: %s orig_net",
++                                  ls[i].netns, self_netns_path);
++                    break;
++	        }
++                char tgt_netns_path[PATH_MAX];
++                ngx_snprintf(tgt_netns_path, PATH_MAX, "/var/run/netns/%s%Z", ls[i].netns);
++                int tgt_net_fd = open(tgt_netns_path, O_RDONLY);
++                if (tgt_net_fd == -1) {
++                    ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
++                                  "setns %s failed: %s tgt_net",
++                                  ls[i].netns, tgt_netns_path);
++                    close(orig_net_fd);
++                    orig_net_fd = -1;
++                    break;
++	        }
++	        if (setns(tgt_net_fd, CLONE_NEWNET) == -1) {
++                    ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
++                                  "setns %s failed: syscall tgt",
++                                  ls[i].netns);
++                    close(orig_net_fd);
++                    orig_net_fd = -1;
++	        }
++                close(tgt_net_fd);
++	    } while (0);
++#endif
+             s = ngx_socket(ls[i].sockaddr->sa_family, ls[i].type, 0);
++#if (NGX_HAVE_SETNS)
++            if (orig_net_fd != -1) {
++	        if (setns(orig_net_fd, CLONE_NEWNET) == -1) {
++                    ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
++                                  "setns %s failed: syscall orig",
++                                  ls[i].netns);
++	        }
++	        close(orig_net_fd);
++	    }
++#endif
+ 
+             if (s == (ngx_socket_t) -1) {
+                 ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
+diff --git a/src/core/ngx_connection.h b/src/core/ngx_connection.h
+index 859f54ee..244e5748 100644
+--- a/src/core/ngx_connection.h
++++ b/src/core/ngx_connection.h
+@@ -94,6 +94,10 @@ struct ngx_listening_s {
+     unsigned            tproxy:1;
+ #endif
+ 
++#if (NGX_HAVE_SETNS)
++    char               *netns;
++#endif
++
+ };
+ 
+ 
+diff --git a/src/event/ngx_event_udp.c b/src/event/ngx_event_udp.c
+index 78ae0f85..778d9a12 100644
+--- a/src/event/ngx_event_udp.c
++++ b/src/event/ngx_event_udp.c
+@@ -758,8 +758,54 @@ ngx_get_udp_response_socket(ngx_connection_t *lc,
+ 
+     if (!need_new) return lc->fd;
+ 
++#if (NGX_HAVE_SETNS)
++    int orig_net_fd = -1;
++    do {
++        if (ls.netns == NULL) break;
++        char self_netns_path[PATH_MAX];
++        ngx_snprintf(self_netns_path, PATH_MAX, "/proc/%d/ns/net%Z", getpid());
++        orig_net_fd = open(self_netns_path, O_RDONLY);
++        if (orig_net_fd == -1) {
++            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
++                          "recvmsg setns %s failed: %s orig_net",
++                          ls.netns, self_netns_path);
++            break;
++        }
++        char tgt_netns_path[PATH_MAX];
++        ngx_snprintf(tgt_netns_path, PATH_MAX, "/var/run/netns/%s%Z", ls.netns);
++        int tgt_net_fd = open(tgt_netns_path, O_RDONLY);
++        if (tgt_net_fd == -1) {
++            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
++                          "recvmsg setns %s failed: %s tgt_net",
++                          ls.netns, tgt_netns_path);
++            close(orig_net_fd);
++            orig_net_fd = -1;
++            break;
++        }
++        if (setns(tgt_net_fd, CLONE_NEWNET) == -1) {
++            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
++                          "recvmsg setns %s failed: syscall tgt",
++                          ls.netns);
++            close(orig_net_fd);
++            orig_net_fd = -1;
++        }
++        close(tgt_net_fd);
++    } while (0);
++#endif
++
+     s = ngx_socket(local_sockaddr->sa_family, SOCK_DGRAM, 0);
+ 
++#if (NGX_HAVE_SETNS)
++    if (orig_net_fd != -1) {
++        if (setns(orig_net_fd, CLONE_NEWNET) == -1) {
++            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
++                          "recvmsg setns %s failed: syscall orig",
++                          ls.netns);
++        }
++        close(orig_net_fd);
++    }
++#endif
++
+     if (s == (ngx_socket_t) -1) {
+         ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
+                       ngx_socket_n " udp resp failed");
+diff --git a/src/http/ngx_http.c b/src/http/ngx_http.c
+index 393b0831..96f1db49 100644
+--- a/src/http/ngx_http.c
++++ b/src/http/ngx_http.c
+@@ -1745,6 +1745,10 @@ ngx_http_add_listening(ngx_conf_t *cf, ngx_http_conf_addr_t *addr)
+     ls->tproxy = addr->opt.tproxy;
+ #endif
+ 
++#if (NGX_HAVE_SETNS)
++    ls->netns = addr->opt.netns;
++#endif
++
+ #if (NGX_HAVE_KEEPALIVE_TUNABLE)
+     ls->keepidle = addr->opt.tcp_keepidle;
+     ls->keepintvl = addr->opt.tcp_keepintvl;
+diff --git a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
+index 84f36b34..800e0d0c 100644
+--- a/src/http/ngx_http_core_module.c
++++ b/src/http/ngx_http_core_module.c
+@@ -3815,6 +3815,9 @@ ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ #if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
+     lsopt.tproxy = 0;
+ #endif
++#if (NGX_HAVE_SETNS)
++    lsopt.netns = NULL;
++#endif
+ 
+     for (n = 2; n < cf->args->nelts; n++) {
+ 
+@@ -3949,6 +3952,20 @@ ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+             continue;
+         }
+ 
++        if (ngx_strncmp(value[n].data, "netns=", 6) == 0) {
++#if (NGX_HAVE_SETNS)
++            unsigned str_length = value[n].len - 6 + 1;
++            lsopt.netns = ngx_pnalloc(cf->pool, str_length);
++            ngx_cpystrn((unsigned char *)lsopt.netns, value[n].data + 6, str_length);
++#else
++            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                               "netns is not supported "
++                               "on this platform, ignore \"%V\"",
++                               &value[n]);
++#endif
++            continue;
++        }
++
+         if (ngx_strncmp(value[n].data, "ipv6only=o", 10) == 0) {
+ #if (NGX_HAVE_INET6 && defined IPV6_V6ONLY)
+             if (ngx_strcmp(&value[n].data[10], "n") == 0) {
+diff --git a/src/http/ngx_http_core_module.h b/src/http/ngx_http_core_module.h
+index 5103c854..befc7313 100644
+--- a/src/http/ngx_http_core_module.h
++++ b/src/http/ngx_http_core_module.h
+@@ -85,6 +85,9 @@ typedef struct {
+ #if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
+     unsigned                   tproxy:1;
+ #endif
++#if (NGX_HAVE_SETNS)
++    char                      *netns;
++#endif
+ 
+     int                        backlog;
+     int                        rcvbuf;
+diff --git a/src/stream/ngx_stream.c b/src/stream/ngx_stream.c
+index 027ba7d3..e51a2e6d 100644
+--- a/src/stream/ngx_stream.c
++++ b/src/stream/ngx_stream.c
+@@ -505,6 +505,10 @@ ngx_stream_optimize_servers(ngx_conf_t *cf, ngx_array_t *ports)
+             ls->tproxy = addr[i].opt.tproxy;
+ #endif
+ 
++#if (NGX_HAVE_SETNS)
++            ls->netns = addr[i].opt.netns;
++#endif
++
+ #if (NGX_HAVE_KEEPALIVE_TUNABLE)
+             ls->keepidle = addr[i].opt.tcp_keepidle;
+             ls->keepintvl = addr[i].opt.tcp_keepintvl;
+diff --git a/src/stream/ngx_stream.h b/src/stream/ngx_stream.h
+index 21ba99f2..6b31737d 100644
+--- a/src/stream/ngx_stream.h
++++ b/src/stream/ngx_stream.h
+@@ -60,6 +60,9 @@ typedef struct {
+ #if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
+     unsigned                       tproxy:1;
+ #endif
++#if (NGX_HAVE_SETNS)
++    char                          *netns;
++#endif
+ #if (NGX_HAVE_KEEPALIVE_TUNABLE)
+     int                            tcp_keepidle;
+     int                            tcp_keepintvl;
+diff --git a/src/stream/ngx_stream_core_module.c b/src/stream/ngx_stream_core_module.c
+index e455702e..34e12ad0 100644
+--- a/src/stream/ngx_stream_core_module.c
++++ b/src/stream/ngx_stream_core_module.c
+@@ -623,6 +623,10 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+     ls->tproxy = 0;
+ #endif
+ 
++#if (NGX_HAVE_SETNS)
++    ls->netns = NULL;
++#endif
++
+     backlog = 0;
+ 
+     for (i = 2; i < cf->args->nelts; i++) {
+@@ -696,6 +700,20 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+             continue;
+         }
+ 
++        if (ngx_strncmp(value[i].data, "netns=", 6) == 0) {
++#if (NGX_HAVE_SETNS)
++            unsigned str_length = value[i].len - 6 + 1;
++            ls->netns = ngx_pnalloc(cf->pool, str_length);
++            ngx_cpystrn((unsigned char*)ls->netns, value[i].data + 6, str_length);
++#else
++            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                               "netns is not supported "
++                               "on this platform, ignore \"%V\"",
++                               &value[i]);
++#endif
++            continue;
++        }
++
+         if (ngx_strncmp(value[i].data, "ipv6only=o", 10) == 0) {
+ #if (NGX_HAVE_INET6 && defined IPV6_V6ONLY)
+             if (ngx_strcmp(&value[i].data[10], "n") == 0) {

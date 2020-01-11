@@ -1,0 +1,592 @@
+commit 0f0a69d6d5f5fdab79fb5d9f1f76297754e2a971
+Author: Wenxin Wang <i@wenxinwang.me>
+Date:   Sat Dec 28 13:15:06 2019 +0800
+
+    tproxy for linux
+    
+    https://gist.github.com/shankerwangmiao/cfecc03174e8e67f20537dc4650ef3e8
+
+diff --git a/auto/unix b/auto/unix
+index ff9697a4..09155d71 100644
+--- a/auto/unix
++++ b/auto/unix
+@@ -435,6 +435,32 @@ ngx_feature_test="struct in_pktinfo  pkt;
+ . auto/feature
+ 
+ 
++# Linux way to get transparent proxy IPV4 udp destination
++
++ngx_feature="IP_RECVORIGDSTADDR"
++ngx_feature_name="NGX_HAVE_IP_RECVORIGDSTADDR"
++ngx_feature_run=no
++ngx_feature_incs="#include <sys/socket.h>
++                  #include <netinet/in.h>"
++ngx_feature_path=
++ngx_feature_libs=
++ngx_feature_test="setsockopt(0, IPPROTO_IP, IP_RECVORIGDSTADDR, NULL, 0)"
++. auto/feature
++
++
++# Linux transparent proxying for IPv6
++
++ngx_feature="IPV6_TRANSPARENT"
++ngx_feature_name="NGX_HAVE_IPV6_TRANSPARENT_PROXY"
++ngx_feature_run=no
++ngx_feature_incs="#include <sys/socket.h>
++                  #include <netinet/in.h>"
++ngx_feature_path=
++ngx_feature_libs=
++ngx_feature_test="setsockopt(0, IPPROTO_IPV6, IPV6_TRANSPARENT, NULL, 0)"
++. auto/feature
++
++
+ # RFC 3542 way to get IPv6 datagram destination address
+ 
+ ngx_feature="IPV6_RECVPKTINFO"
+@@ -448,6 +474,19 @@ ngx_feature_test="setsockopt(0, IPPROTO_IPV6, IPV6_RECVPKTINFO, NULL, 0)"
+ . auto/feature
+ 
+ 
++# Linux way to get transparent proxy IPV6 udp destination
++
++ngx_feature="IPV6_RECVORIGDSTADDR"
++ngx_feature_name="NGX_HAVE_IPV6_RECVORIGDSTADDR"
++ngx_feature_run=no
++ngx_feature_incs="#include <sys/socket.h>
++                  #include <netinet/in.h>"
++ngx_feature_path=
++ngx_feature_libs=
++ngx_feature_test="setsockopt(0, IPPROTO_IPV6, IPV6_RECVORIGDSTADDR, NULL, 0)"
++. auto/feature
++
++
+ ngx_feature="TCP_DEFER_ACCEPT"
+ ngx_feature_name="NGX_HAVE_DEFERRED_ACCEPT"
+ ngx_feature_run=no
+diff --git a/src/core/ngx_connection.c b/src/core/ngx_connection.c
+index 33682532..8873d2e9 100644
+--- a/src/core/ngx_connection.c
++++ b/src/core/ngx_connection.c
+@@ -560,6 +560,40 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
+             }
+ #endif
+ 
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++
++            if (ls[i].tproxy && ls[i].sockaddr->sa_family == AF_INET) {
++                int  transparent = 1;
++
++                if (setsockopt(s, IPPROTO_IP, IP_TRANSPARENT,
++                               (const void *) &transparent, sizeof(int))
++                    == -1)
++                {
++                    ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
++                                  "setsockopt(IP_TRANSPARENT) for %V failed, "
++                                  "ignored",
++                                  &ls[i].addr_text);
++                }
++            }
++#endif
++
++#if (NGX_HAVE_IPV6_TRANSPARENT_PROXY && defined IPV6_TRANSPARENT)
++
++            if (ls[i].tproxy && ls[i].sockaddr->sa_family == AF_INET6) {
++                int  transparent = 1;
++
++                if (setsockopt(s, IPPROTO_IPV6, IPV6_TRANSPARENT,
++                               (const void *) &transparent, sizeof(int))
++                    == -1)
++                {
++                    ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
++                                  "setsockopt(IPV6_TRANSPARENT) for %V failed, "
++                                  "tproxy ignored",
++                                  &ls[i].addr_text);
++                }
++            }
++#endif
++
+ #if (NGX_HAVE_INET6 && defined IPV6_V6ONLY)
+ 
+             if (ls[i].sockaddr->sa_family == AF_INET6) {
+@@ -991,6 +1025,28 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+ 
+ #endif
+ 
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT \
++     && NGX_HAVE_IP_RECVORIGDSTADDR)
++
++        if (ls[i].tproxy
++            && ls[i].type == SOCK_DGRAM
++            && ls[i].sockaddr->sa_family == AF_INET)
++        {
++            value = 1;
++
++            if (setsockopt(ls[i].fd, IPPROTO_IP, IP_RECVORIGDSTADDR,
++                           (const void *) &value, sizeof(int))
++                == -1)
++            {
++                ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_socket_errno,
++                              "setsockopt(IP_RECVORIGDSTADDR) "
++                              "for %V failed, ignored",
++                              &ls[i].addr_text);
++            }
++        }
++
++#endif
++
+ #if (NGX_HAVE_INET6 && NGX_HAVE_IPV6_RECVPKTINFO)
+ 
+         if (ls[i].wildcard
+@@ -1010,6 +1066,28 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
+             }
+         }
+ 
++#endif
++
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT \
++     && NGX_HAVE_INET6 && NGX_HAVE_IPV6_RECVORIGDSTADDR)
++
++        if (ls[i].tproxy
++            && ls[i].type == SOCK_DGRAM
++            && ls[i].sockaddr->sa_family == AF_INET6)
++        {
++            value = 1;
++
++            if (setsockopt(ls[i].fd, IPPROTO_IPV6, IPV6_RECVORIGDSTADDR,
++                           (const void *) &value, sizeof(int))
++                == -1)
++            {
++                ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_socket_errno,
++                              "setsockopt(IPV6_RECVORIGDSTADDR) "
++                              "for %V failed, ignored",
++                              &ls[i].addr_text);
++            }
++        }
++
+ #endif
+     }
+ 
+diff --git a/src/core/ngx_connection.h b/src/core/ngx_connection.h
+index ad6556d0..859f54ee 100644
+--- a/src/core/ngx_connection.h
++++ b/src/core/ngx_connection.h
+@@ -90,6 +90,10 @@ struct ngx_listening_s {
+     int                 fastopen;
+ #endif
+ 
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++    unsigned            tproxy:1;
++#endif
++
+ };
+ 
+ 
+diff --git a/src/event/ngx_event_accept.c b/src/event/ngx_event_accept.c
+index 43642409..f9f7b795 100644
+--- a/src/event/ngx_event_accept.c
++++ b/src/event/ngx_event_accept.c
+@@ -212,8 +212,21 @@ ngx_event_accept(ngx_event_t *ev)
+ 
+         c->socklen = socklen;
+         c->listening = ls;
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++        if(ls->tproxy) {
++            c->local_sockaddr = NULL;
++            c->local_socklen = 0;
++            if (ngx_connection_local_sockaddr(c, NULL, 0) != NGX_OK) {
++                ngx_close_accepted_connection(c);
++                return;
++            }
++        } else {
++#endif
+         c->local_sockaddr = ls->sockaddr;
+         c->local_socklen = ls->socklen;
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++        }
++#endif
+ 
+ #if (NGX_HAVE_UNIX_DOMAIN)
+         if (c->sockaddr->sa_family == AF_UNIX) {
+diff --git a/src/event/ngx_event_udp.c b/src/event/ngx_event_udp.c
+index 55728305..78ae0f85 100644
+--- a/src/event/ngx_event_udp.c
++++ b/src/event/ngx_event_udp.c
+@@ -26,6 +26,8 @@ static ngx_int_t ngx_insert_udp_connection(ngx_connection_t *c);
+ static ngx_connection_t *ngx_lookup_udp_connection(ngx_listening_t *ls,
+     struct sockaddr *sockaddr, socklen_t socklen,
+     struct sockaddr *local_sockaddr, socklen_t local_socklen);
++static ngx_socket_t ngx_get_udp_response_socket(ngx_connection_t *lc,
++    struct sockaddr *local_sockaddr, socklen_t local_socklen, ngx_log_t *log)
+ 
+ 
+ void
+@@ -45,16 +47,23 @@ ngx_event_recvmsg(ngx_event_t *ev)
+     ngx_event_conf_t  *ecf;
+     ngx_connection_t  *c, *lc;
+     static u_char      buffer[65535];
++    ngx_socket_t       resp_fd;
+ 
+ #if (NGX_HAVE_MSGHDR_MSG_CONTROL)
+ 
+-#if (NGX_HAVE_IP_RECVDSTADDR)
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined(IP_TRANSPARENT) \
++       && NGX_HAVE_IP_RECVORIGDSTADDR)
++    u_char             msg_control[CMSG_SPACE(sizeof(struct sockaddr_in))];
++#elif (NGX_HAVE_IP_RECVDSTADDR)
+     u_char             msg_control[CMSG_SPACE(sizeof(struct in_addr))];
+ #elif (NGX_HAVE_IP_PKTINFO)
+     u_char             msg_control[CMSG_SPACE(sizeof(struct in_pktinfo))];
+ #endif
+ 
+-#if (NGX_HAVE_INET6 && NGX_HAVE_IPV6_RECVPKTINFO)
++#if (NGX_HAVE_IPV6_TRANSPARENT_PROXY && defined(IPV6_TRANSPARENT) \
++       && NGX_HAVE_IPV6_RECVORIGDSTADDR)
++    u_char             msg_control6[CMSG_SPACE(sizeof(struct sockaddr_in6))];
++#elif (NGX_HAVE_INET6 && NGX_HAVE_IPV6_RECVPKTINFO)
+     u_char             msg_control6[CMSG_SPACE(sizeof(struct in6_pktinfo))];
+ #endif
+ 
+@@ -111,6 +120,22 @@ ngx_event_recvmsg(ngx_event_t *ev)
+ #endif
+         }
+ 
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined(IP_TRANSPARENT) \
++     && NGX_HAVE_IP_RECVORIGDSTADDR)
++        if (ls->tproxy && ls->sockaddr->sa_family == AF_INET) {
++            msg.msg_control = &msg_control;
++            msg.msg_controllen = sizeof(msg_control);
++        }
++#endif
++
++#if (NGX_HAVE_IPV6_TRANSPARENT_PROXY && defined(IPV6_TRANSPARENT) \
++     && NGX_HAVE_IPV6_RECVORIGDSTADDR)
++        if (ls->tproxy && ls->sockaddr->sa_family == AF_INET6) {
++            msg.msg_control = &msg_control6;
++            msg.msg_controllen = sizeof(msg_control6);
++        }
++#endif
++
+ #endif
+ 
+         n = recvmsg(lc->fd, &msg, 0);
+@@ -161,7 +186,23 @@ ngx_event_recvmsg(ngx_event_t *ev)
+ 
+ #if (NGX_HAVE_MSGHDR_MSG_CONTROL)
+ 
+-        if (ls->wildcard) {
++        int need_cmsg_local_sockaddr = ls->wildcard;
++
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined(IP_TRANSPARENT) \
++     && NGX_HAVE_IP_RECVORIGDSTADDR)
++        if (ls->tproxy && local_sockaddr->sa_family == AF_INET) {
++            need_cmsg_local_sockaddr = 1;
++        }
++#endif
++
++#if (NGX_HAVE_IPV6_TRANSPARENT_PROXY && defined(IPV6_TRANSPARENT) \
++     && NGX_HAVE_IPV6_RECVORIGDSTADDR)
++        if (ls->tproxy && local_sockaddr->sa_family == AF_INET6) {
++            need_cmsg_local_sockaddr = 1;
++        }
++#endif
++
++        if (need_cmsg_local_sockaddr) {
+             struct cmsghdr  *cmsg;
+ 
+             ngx_memcpy(&lsa, local_sockaddr, local_socklen);
+@@ -206,6 +247,26 @@ ngx_event_recvmsg(ngx_event_t *ev)
+ 
+ #endif
+ 
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined(IP_TRANSPARENT) \
++     && NGX_HAVE_IP_RECVORIGDSTADDR)
++
++                if (ls->tproxy
++                    && cmsg->cmsg_level == IPPROTO_IP
++                    && cmsg->cmsg_type == IP_ORIGDSTADDR
++                    && local_sockaddr->sa_family == AF_INET)
++                {
++                    struct sockaddr_in  *sin_orig;
++                    struct sockaddr_in  *sin;
++
++                    sin_orig = (struct sockaddr_in *) CMSG_DATA(cmsg);
++                    sin = (struct sockaddr_in *) local_sockaddr;
++                    *sin = *sin_orig;
++
++                    break;
++                }
++
++#endif
++
+ #if (NGX_HAVE_INET6 && NGX_HAVE_IPV6_RECVPKTINFO)
+ 
+                 if (cmsg->cmsg_level == IPPROTO_IPV6
+@@ -222,6 +283,26 @@ ngx_event_recvmsg(ngx_event_t *ev)
+                     break;
+                 }
+ 
++#endif
++
++#if (NGX_HAVE_IPV6_TRANSPARENT_PROXY && defined(IPV6_TRANSPARENT) \
++     && NGX_HAVE_IPV6_RECVORIGDSTADDR)
++
++                if (ls->tproxy
++                    && cmsg->cmsg_level == IPPROTO_IPV6
++                    && cmsg->cmsg_type == IPV6_ORIGDSTADDR
++                    && local_sockaddr->sa_family == AF_INET6)
++                {
++                    struct sockaddr_in6  *sin6_orig;
++                    struct sockaddr_in6  *sin6;
++
++                    sin6_orig = (struct sockaddr_in6 *) CMSG_DATA(cmsg);
++                    sin6 = (struct sockaddr_in6 *) local_sockaddr;
++                    *sin6 = *sin6_orig;
++
++                    break;
++                }
++
+ #endif
+ 
+             }
+@@ -279,12 +360,14 @@ ngx_event_recvmsg(ngx_event_t *ev)
+         ngx_accept_disabled = ngx_cycle->connection_n / 8
+                               - ngx_cycle->free_connection_n;
+ 
+-        c = ngx_get_connection(lc->fd, ev->log);
++        resp_fd = ngx_get_udp_response_socket(lc, local_sockaddr,
++                                              local_socklen, ev->log);
++        c = ngx_get_connection(resp_fd, ev->log);
+         if (c == NULL) {
+             return;
+         }
+ 
+-        c->shared = 1;
++        c->shared = (resp_fd == lc->fd);
+         c->type = SOCK_DGRAM;
+         c->socklen = socklen;
+ 
+@@ -652,6 +735,100 @@ ngx_lookup_udp_connection(ngx_listening_t *ls, struct sockaddr *sockaddr,
+     return NULL;
+ }
+ 
++ngx_socket_t
++ngx_get_udp_response_socket(ngx_connection_t *lc,
++    struct sockaddr *local_sockaddr, socklen_t local_socklen, ngx_log_t *log)
++{
++    ngx_listening_t *ls = lc->listening;
++    int need_new = 0;
++
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined(IP_TRANSPARENT) \
++     && NGX_HAVE_IP_RECVORIGDSTADDR)
++    if (ls->tproxy && ls->sockaddr->sa_family == AF_INET) {
++        need_new = 1;
++    }
++#endif
++
++#if (NGX_HAVE_IPV6_TRANSPARENT_PROXY && defined(IPV6_TRANSPARENT) \
++     && NGX_HAVE_IPV6_RECVORIGDSTADDR)
++    if (ls->tproxy && ls->sockaddr->sa_family == AF_INET6) {
++        need_new = 1;
++    }
++#endif
++
++    if (!need_new) return lc->fd;
++
++    s = ngx_socket(local_sockaddr->sa_family, SOCK_DGRAM, 0);
++
++    if (s == (ngx_socket_t) -1) {
++        ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
++                      ngx_socket_n " udp resp failed");
++        return lc->fd;
++    }
++
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++    if (ls.tproxy && local_sockaddr->sa_family == AF_INET) {
++        int  transparent = 1;
++
++        if (setsockopt(s, IPPROTO_IP, IP_TRANSPARENT,
++                       (const void *) &transparent, sizeof(int))
++            == -1)
++        {
++            ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
++                          "udp resp setsockopt(IP_TRANSPARENT) failed");
++            if (ngx_close_socket(s) == -1) {
++                ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
++                              ngx_close_socket_n " failed udp resp");
++            }
++            return lc->fd;
++        }
++    }
++#endif
++
++#if (NGX_HAVE_IPV6_TRANSPARENT_PROXY && defined IPV6_TRANSPARENT)
++    if (ls.tproxy && ls.sockaddr->sa_family == AF_INET6) {
++        int transparent = 1;
++
++        if (setsockopt(s, IPPROTO_IPV6, IPV6_TRANSPARENT,
++                       (const void *) &transparent, sizeof(int))
++            == -1)
++        {
++            ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
++                          "udp resp setsockopt(IPV6_TRANSPARENT) failed");
++            if (ngx_close_socket(s) == -1) {
++                ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
++                              ngx_close_socket_n " failed udp resp");
++            }
++            return lc->fd;
++        }
++    }
++#endif
++
++#if (NGX_HAVE_REUSEPORT)
++    if (ls.tproxy) {
++        int reuseport = 1;
++        if (setsockopt(s, SOL_SOCKET, SO_REUSEPORT,
++                       (const void *) &reuseport, sizeof(int))
++            == -1)
++        {
++            ngx_log_error(NGX_LOG_ALERT, log, ngx_socket_errno,
++                          "udp resp setsockopt(SO_REUSEPORT) failed, ignored");
++        }
++    }
++#endif
++
++    if (bind(s, local_sockaddr, local_socklen) == -1) {
++        ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
++                      "udp resp bind failed, ignored");
++        if (ngx_close_socket(s) == -1) {
++            ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
++                          ngx_close_socket_n " failed udp resp bind");
++        }
++        return lc->fd;
++    }
++    return s;
++}
++
+ #else
+ 
+ void
+diff --git a/src/http/ngx_http.c b/src/http/ngx_http.c
+index 79ef9c64..393b0831 100644
+--- a/src/http/ngx_http.c
++++ b/src/http/ngx_http.c
+@@ -1740,6 +1740,11 @@ ngx_http_add_listening(ngx_conf_t *cf, ngx_http_conf_addr_t *addr)
+     ls->sndbuf = addr->opt.sndbuf;
+ 
+     ls->keepalive = addr->opt.so_keepalive;
++
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++    ls->tproxy = addr->opt.tproxy;
++#endif
++
+ #if (NGX_HAVE_KEEPALIVE_TUNABLE)
+     ls->keepidle = addr->opt.tcp_keepidle;
+     ls->keepintvl = addr->opt.tcp_keepintvl;
+diff --git a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
+index aa03fd61..84f36b34 100644
+--- a/src/http/ngx_http_core_module.c
++++ b/src/http/ngx_http_core_module.c
+@@ -3812,6 +3812,9 @@ ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ #if (NGX_HAVE_INET6)
+     lsopt.ipv6only = 1;
+ #endif
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++    lsopt.tproxy = 0;
++#endif
+ 
+     for (n = 2; n < cf->args->nelts; n++) {
+ 
+@@ -3935,6 +3938,17 @@ ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+             continue;
+         }
+ 
++        if (ngx_strcmp(value[n].data, "tproxy") == 0) {
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++            lsopt.tproxy = 1;
++#else
++            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                               "tproxy mode is not supported "
++                               "on this platform, ignore tproxy");
++#endif
++            continue;
++        }
++
+         if (ngx_strncmp(value[n].data, "ipv6only=o", 10) == 0) {
+ #if (NGX_HAVE_INET6 && defined IPV6_V6ONLY)
+             if (ngx_strcmp(&value[n].data[10], "n") == 0) {
+diff --git a/src/http/ngx_http_core_module.h b/src/http/ngx_http_core_module.h
+index f5434cc5..5103c854 100644
+--- a/src/http/ngx_http_core_module.h
++++ b/src/http/ngx_http_core_module.h
+@@ -82,6 +82,9 @@ typedef struct {
+     unsigned                   reuseport:1;
+     unsigned                   so_keepalive:2;
+     unsigned                   proxy_protocol:1;
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++    unsigned                   tproxy:1;
++#endif
+ 
+     int                        backlog;
+     int                        rcvbuf;
+diff --git a/src/stream/ngx_stream.c b/src/stream/ngx_stream.c
+index 78356754..027ba7d3 100644
+--- a/src/stream/ngx_stream.c
++++ b/src/stream/ngx_stream.c
+@@ -500,6 +500,11 @@ ngx_stream_optimize_servers(ngx_conf_t *cf, ngx_array_t *ports)
+             ls->wildcard = addr[i].opt.wildcard;
+ 
+             ls->keepalive = addr[i].opt.so_keepalive;
++
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++            ls->tproxy = addr[i].opt.tproxy;
++#endif
++
+ #if (NGX_HAVE_KEEPALIVE_TUNABLE)
+             ls->keepidle = addr[i].opt.tcp_keepidle;
+             ls->keepintvl = addr[i].opt.tcp_keepintvl;
+diff --git a/src/stream/ngx_stream.h b/src/stream/ngx_stream.h
+index 9e358329..21ba99f2 100644
+--- a/src/stream/ngx_stream.h
++++ b/src/stream/ngx_stream.h
+@@ -57,6 +57,9 @@ typedef struct {
+     unsigned                       reuseport:1;
+     unsigned                       so_keepalive:2;
+     unsigned                       proxy_protocol:1;
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++    unsigned                       tproxy:1;
++#endif
+ #if (NGX_HAVE_KEEPALIVE_TUNABLE)
+     int                            tcp_keepidle;
+     int                            tcp_keepintvl;
+diff --git a/src/stream/ngx_stream_core_module.c b/src/stream/ngx_stream_core_module.c
+index 9b6afe97..e455702e 100644
+--- a/src/stream/ngx_stream_core_module.c
++++ b/src/stream/ngx_stream_core_module.c
+@@ -619,6 +619,10 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+     ls->ipv6only = 1;
+ #endif
+ 
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++    ls->tproxy = 0;
++#endif
++
+     backlog = 0;
+ 
+     for (i = 2; i < cf->args->nelts; i++) {
+@@ -681,6 +685,16 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ 
+             continue;
+         }
++        if (ngx_strcmp(value[i].data, "tproxy") == 0) {
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++            ls->tproxy = 1;
++#else
++            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                               "transparent mode is not supported "
++                               "on this platform, ignore tproxy");
++#endif
++            continue;
++        }
+ 
+         if (ngx_strncmp(value[i].data, "ipv6only=o", 10) == 0) {
+ #if (NGX_HAVE_INET6 && defined IPV6_V6ONLY)
