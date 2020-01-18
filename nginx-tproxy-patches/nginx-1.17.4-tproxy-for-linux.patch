@@ -1,4 +1,4 @@
-commit 0f0a69d6d5f5fdab79fb5d9f1f76297754e2a971
+commit aaaad4495359b23637af4f6043d7ad219e3cd013
 Author: Wenxin Wang <i@wenxinwang.me>
 Date:   Sat Dec 28 13:15:06 2019 +0800
 
@@ -208,7 +208,7 @@ index 43642409..f9f7b795 100644
  #if (NGX_HAVE_UNIX_DOMAIN)
          if (c->sockaddr->sa_family == AF_UNIX) {
 diff --git a/src/event/ngx_event_udp.c b/src/event/ngx_event_udp.c
-index 55728305..78ae0f85 100644
+index 55728305..5e4ef8ca 100644
 --- a/src/event/ngx_event_udp.c
 +++ b/src/event/ngx_event_udp.c
 @@ -26,6 +26,8 @@ static ngx_int_t ngx_insert_udp_connection(ngx_connection_t *c);
@@ -216,7 +216,7 @@ index 55728305..78ae0f85 100644
      struct sockaddr *sockaddr, socklen_t socklen,
      struct sockaddr *local_sockaddr, socklen_t local_socklen);
 +static ngx_socket_t ngx_get_udp_response_socket(ngx_connection_t *lc,
-+    struct sockaddr *local_sockaddr, socklen_t local_socklen, ngx_log_t *log)
++    struct sockaddr *local_sockaddr, socklen_t local_socklen, ngx_log_t *log);
  
  
  void
@@ -365,7 +365,7 @@ index 55728305..78ae0f85 100644
          c->type = SOCK_DGRAM;
          c->socklen = socklen;
  
-@@ -652,6 +735,100 @@ ngx_lookup_udp_connection(ngx_listening_t *ls, struct sockaddr *sockaddr,
+@@ -652,6 +735,101 @@ ngx_lookup_udp_connection(ngx_listening_t *ls, struct sockaddr *sockaddr,
      return NULL;
  }
  
@@ -374,6 +374,7 @@ index 55728305..78ae0f85 100644
 +    struct sockaddr *local_sockaddr, socklen_t local_socklen, ngx_log_t *log)
 +{
 +    ngx_listening_t *ls = lc->listening;
++    ngx_socket_t s;
 +    int need_new = 0;
 +
 +#if (NGX_HAVE_TRANSPARENT_PROXY && defined(IP_TRANSPARENT) \
@@ -401,7 +402,7 @@ index 55728305..78ae0f85 100644
 +    }
 +
 +#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
-+    if (ls.tproxy && local_sockaddr->sa_family == AF_INET) {
++    if (ls->tproxy && local_sockaddr->sa_family == AF_INET) {
 +        int  transparent = 1;
 +
 +        if (setsockopt(s, IPPROTO_IP, IP_TRANSPARENT,
@@ -420,7 +421,7 @@ index 55728305..78ae0f85 100644
 +#endif
 +
 +#if (NGX_HAVE_IPV6_TRANSPARENT_PROXY && defined IPV6_TRANSPARENT)
-+    if (ls.tproxy && ls.sockaddr->sa_family == AF_INET6) {
++    if (ls->tproxy && local_sockaddr->sa_family == AF_INET6) {
 +        int transparent = 1;
 +
 +        if (setsockopt(s, IPPROTO_IPV6, IPV6_TRANSPARENT,
@@ -439,7 +440,7 @@ index 55728305..78ae0f85 100644
 +#endif
 +
 +#if (NGX_HAVE_REUSEPORT)
-+    if (ls.tproxy) {
++    if (ls->tproxy) {
 +        int reuseport = 1;
 +        if (setsockopt(s, SOL_SOCKET, SO_REUSEPORT,
 +                       (const void *) &reuseport, sizeof(int))
@@ -559,7 +560,7 @@ index 9e358329..21ba99f2 100644
      int                            tcp_keepidle;
      int                            tcp_keepintvl;
 diff --git a/src/stream/ngx_stream_core_module.c b/src/stream/ngx_stream_core_module.c
-index 9b6afe97..e455702e 100644
+index 9b6afe97..dd1b1391 100644
 --- a/src/stream/ngx_stream_core_module.c
 +++ b/src/stream/ngx_stream_core_module.c
 @@ -619,6 +619,10 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
@@ -590,3 +591,19 @@ index 9b6afe97..e455702e 100644
  
          if (ngx_strncmp(value[i].data, "ipv6only=o", 10) == 0) {
  #if (NGX_HAVE_INET6 && defined IPV6_V6ONLY)
+@@ -859,6 +873,15 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+         if (ls->proxy_protocol) {
+             return "\"proxy_protocol\" parameter is incompatible with \"udp\"";
+         }
++
++#if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
++        if (ls->tproxy) {
++            ngx_core_conf_t *ccf;
++            ccf = (ngx_core_conf_t *) ngx_get_conf(cf->cycle->conf_ctx,
++                                                   ngx_core_module);
++            ccf->transparent = 1;
++        }
++#endif
+     }
+ 
+     als = cmcf->listen.elts;

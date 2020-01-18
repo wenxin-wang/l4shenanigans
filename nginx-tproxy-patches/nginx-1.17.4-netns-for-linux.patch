@@ -1,6 +1,6 @@
-commit 8bba6517b78effe2eefa510136a6c3c0f596c73d
+commit d3070bb8035f72ced86a50b8265b98c25a40037a
 Author: Wenxin Wang <i@wenxinwang.me>
-Date:   Mon Dec 30 16:45:14 2019 +0800
+Date:   Sun Dec 29 16:45:14 2019 +0800
 
     netns for linux
 
@@ -100,64 +100,17 @@ index 859f54ee..244e5748 100644
  
  
 diff --git a/src/event/ngx_event_udp.c b/src/event/ngx_event_udp.c
-index 78ae0f85..778d9a12 100644
+index 5e4ef8ca..7e620b58 100644
 --- a/src/event/ngx_event_udp.c
 +++ b/src/event/ngx_event_udp.c
-@@ -758,8 +758,54 @@ ngx_get_udp_response_socket(ngx_connection_t *lc,
+@@ -759,6 +759,7 @@ ngx_get_udp_response_socket(ngx_connection_t *lc,
  
      if (!need_new) return lc->fd;
  
-+#if (NGX_HAVE_SETNS)
-+    int orig_net_fd = -1;
-+    do {
-+        if (ls.netns == NULL) break;
-+        char self_netns_path[PATH_MAX];
-+        ngx_snprintf(self_netns_path, PATH_MAX, "/proc/%d/ns/net%Z", getpid());
-+        orig_net_fd = open(self_netns_path, O_RDONLY);
-+        if (orig_net_fd == -1) {
-+            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
-+                          "recvmsg setns %s failed: %s orig_net",
-+                          ls.netns, self_netns_path);
-+            break;
-+        }
-+        char tgt_netns_path[PATH_MAX];
-+        ngx_snprintf(tgt_netns_path, PATH_MAX, "/var/run/netns/%s%Z", ls.netns);
-+        int tgt_net_fd = open(tgt_netns_path, O_RDONLY);
-+        if (tgt_net_fd == -1) {
-+            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
-+                          "recvmsg setns %s failed: %s tgt_net",
-+                          ls.netns, tgt_netns_path);
-+            close(orig_net_fd);
-+            orig_net_fd = -1;
-+            break;
-+        }
-+        if (setns(tgt_net_fd, CLONE_NEWNET) == -1) {
-+            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
-+                          "recvmsg setns %s failed: syscall tgt",
-+                          ls.netns);
-+            close(orig_net_fd);
-+            orig_net_fd = -1;
-+        }
-+        close(tgt_net_fd);
-+    } while (0);
-+#endif
-+
++    // After experiment, it seems that netns can be safely ignored here
      s = ngx_socket(local_sockaddr->sa_family, SOCK_DGRAM, 0);
  
-+#if (NGX_HAVE_SETNS)
-+    if (orig_net_fd != -1) {
-+        if (setns(orig_net_fd, CLONE_NEWNET) == -1) {
-+            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
-+                          "recvmsg setns %s failed: syscall orig",
-+                          ls.netns);
-+        }
-+        close(orig_net_fd);
-+    }
-+#endif
-+
      if (s == (ngx_socket_t) -1) {
-         ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
-                       ngx_socket_n " udp resp failed");
 diff --git a/src/http/ngx_http.c b/src/http/ngx_http.c
 index 393b0831..96f1db49 100644
 --- a/src/http/ngx_http.c
@@ -252,7 +205,7 @@ index 21ba99f2..6b31737d 100644
      int                            tcp_keepidle;
      int                            tcp_keepintvl;
 diff --git a/src/stream/ngx_stream_core_module.c b/src/stream/ngx_stream_core_module.c
-index e455702e..34e12ad0 100644
+index dd1b1391..ce42a171 100644
 --- a/src/stream/ngx_stream_core_module.c
 +++ b/src/stream/ngx_stream_core_module.c
 @@ -623,6 +623,10 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
