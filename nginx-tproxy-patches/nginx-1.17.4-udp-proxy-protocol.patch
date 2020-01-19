@@ -1,0 +1,112 @@
+commit e36204d5d691d20a4053ad09e43fe9e443f89fea
+Author: Wenxin Wang <i@wenxinwang.me>
+Date:   Sun Jan 19 21:38:21 2020 +0800
+
+    udp proxy_protocol
+
+diff --git a/src/stream/ngx_stream_core_module.c b/src/stream/ngx_stream_core_module.c
+index ce42a171..c09af44e 100644
+--- a/src/stream/ngx_stream_core_module.c
++++ b/src/stream/ngx_stream_core_module.c
+@@ -887,11 +887,6 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+         if (ls->so_keepalive) {
+             return "\"so_keepalive\" parameter is incompatible with \"udp\"";
+         }
+-
+-        if (ls->proxy_protocol) {
+-            return "\"proxy_protocol\" parameter is incompatible with \"udp\"";
+-        }
+-
+ #if (NGX_HAVE_TRANSPARENT_PROXY && defined IP_TRANSPARENT)
+         if (ls->tproxy) {
+             ngx_core_conf_t *ccf;
+diff --git a/src/stream/ngx_stream_handler.c b/src/stream/ngx_stream_handler.c
+index 669b6a18..f05dc8ea 100644
+--- a/src/stream/ngx_stream_handler.c
++++ b/src/stream/ngx_stream_handler.c
+@@ -176,7 +176,7 @@ ngx_stream_init_connection(ngx_connection_t *c)
+     rev = c->read;
+     rev->handler = ngx_stream_session_handler;
+ 
+-    if (addr_conf->proxy_protocol) {
++    if (addr_conf->proxy_protocol && c->type == SOCK_STREAM) {
+         c->log->action = "reading PROXY protocol";
+ 
+         rev->handler = ngx_stream_proxy_protocol_handler;
+@@ -191,6 +191,24 @@ ngx_stream_init_connection(ngx_connection_t *c)
+ 
+             return;
+         }
++    } else if (addr_conf->proxy_protocol && c->type == SOCK_DGRAM) {
++        u_char *p;
++
++        c->log->action = "prereading udp PROXY protocol";
++        p = ngx_proxy_protocol_read(c, c->buffer->pos, c->buffer->last);
++
++        if (p == NULL || p != c->buffer->last) {
++            ngx_stream_finalize_session(s, NGX_STREAM_BAD_REQUEST);
++            return;
++        }
++
++        c->buffer->pos = p;
++        if (c->write->ready) {
++            u_char pp_ack[] = "PPAP" CRLF;
++            ngx_uint_t rc;
++            rc = c->send(c, pp_ack, sizeof(pp_ack) - 1);
++            // TODO: should we call ngx_handle_write_event() here?
++        }
+     }
+ 
+     if (ngx_use_accept_mutex) {
+diff --git a/src/stream/ngx_stream_proxy_module.c b/src/stream/ngx_stream_proxy_module.c
+index 7484a728..1590f30e 100644
+--- a/src/stream/ngx_stream_proxy_module.c
++++ b/src/stream/ngx_stream_proxy_module.c
+@@ -889,8 +889,26 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
+         cl->buf->last_buf = 0;
+         cl->buf->tag = (ngx_buf_tag_t) &ngx_stream_proxy_module;
+ 
+-        cl->next = u->upstream_out;
+-        u->upstream_out = cl;
++        if (pc->type == SOCK_DGRAM) {
++            ngx_int_t rc;
++            cl->buf->flush = 1; // seperate udp packet
++            c->log->action = "dgram send proxy protocol header";
++            // use filter instead of ngx_stream_proxy_send_proxy_protocol(s)
++            rc = ngx_stream_top_filter(s, cl, 0);
++            if (rc == NGX_ERROR) {
++                ngx_stream_proxy_finalize(s, NGX_STREAM_OK);
++                return;
++            }
++            ngx_chain_update_chains(c->pool, &u->free, &u->upstream_busy, &cl,
++                                  (ngx_buf_tag_t) &ngx_stream_proxy_module);
++            // Assuming that server is not listening with proxy_protocol,
++            // there's a packet from downstream ready to be delivered to upstream,
++            // so no need to call ngx_handle_write_event() here.
++            ngx_add_timer(c->read, pscf->connect_timeout);
++        } else {
++            cl->next = u->upstream_out;
++            u->upstream_out = cl;
++        }
+ 
+         u->proxy_protocol = 0;
+     }
+@@ -1615,6 +1633,18 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
+             }
+ 
+             if (n >= 0) {
++                if (!*received && from_upstream) {
++                    u_char pp_ack[] = "PPAP" CRLF; // ignore first one
++                    if (c->read->timer_set) {
++                        ngx_del_timer(c->read);
++                    }
++                    if (n == sizeof(pp_ack) - 1 &&
++                        ngx_strncmp(pp_ack, b->last, n) == 0) {
++                        *received += n;
++                        continue;
++                    }
++                }
++
+                 if (limit_rate) {
+                     delay = (ngx_msec_t) (n * 1000 / limit_rate);
+ 
