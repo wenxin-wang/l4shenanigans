@@ -1,0 +1,63 @@
+commit a50d97317d01558115c78d91be2b8094b2cafd1c
+Author: Wenxin Wang <i@wenxinwang.me>
+Date:   Sat Feb 29 23:43:42 2020 +0800
+
+    no seperate proxy header packet for udp, rely on fragmentation
+
+diff --git a/src/stream/ngx_stream_handler.c b/src/stream/ngx_stream_handler.c
+index 1bf70857..ad148817 100644
+--- a/src/stream/ngx_stream_handler.c
++++ b/src/stream/ngx_stream_handler.c
+@@ -202,17 +202,14 @@ ngx_stream_init_connection(ngx_connection_t *c)
+         }
+         p = ngx_proxy_protocol_read(c, c->buffer->pos, c->buffer->last);
+ 
+-        if (p == NULL || p != c->buffer->last) {
++        if (p == NULL) {
+             ngx_stream_finalize_session(s, NGX_STREAM_BAD_REQUEST);
+             return;
+         }
+ 
+         c->buffer->pos = p;
+-        if (c->write->ready) {
+-            u_char pp_ack[] = "PPAP" CRLF;
+-            ngx_uint_t rc;
+-            rc = c->send(c, pp_ack, sizeof(pp_ack) - 1);
+-            // TODO: should we call ngx_handle_write_event() here?
++        if (s->l4shenanigan) {
++            ngx_stream_rev_bytes(c->buffer->pos, ngx_buf_size(c->buffer));
+         }
+     }
+ 
+diff --git a/src/stream/ngx_stream_proxy_module.c b/src/stream/ngx_stream_proxy_module.c
+index e2679870..0844d3d7 100644
+--- a/src/stream/ngx_stream_proxy_module.c
++++ b/src/stream/ngx_stream_proxy_module.c
+@@ -917,7 +917,7 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
+ 
+         if (pc->type == SOCK_DGRAM) {
+             ngx_int_t rc;
+-            cl->buf->flush = 1; // seperate udp packet
++            cl->buf->flush = 0; // no seperate udp packet
+             c->log->action = "dgram send proxy protocol header";
+             // use filter instead of ngx_stream_proxy_send_proxy_protocol(s)
+             rc = ngx_stream_top_filter(s, cl, 0);
+@@ -1659,18 +1659,6 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
+             }
+ 
+             if (n >= 0) {
+-                if (!*received && c->type == SOCK_DGRAM && from_upstream) {
+-                    u_char pp_ack[] = "PPAP" CRLF; // ignore first one
+-                    if (c->read->timer_set) {
+-                        ngx_del_timer(c->read);
+-                    }
+-                    if (n == sizeof(pp_ack) - 1 &&
+-                        ngx_strncmp(pp_ack, b->last, n) == 0) {
+-                        *received += n;
+-                        continue;
+-                    }
+-                }
+-
+                 if (s->l4shenanigan) {
+                     ngx_stream_rev_bytes(b->last, n);
+                 }
