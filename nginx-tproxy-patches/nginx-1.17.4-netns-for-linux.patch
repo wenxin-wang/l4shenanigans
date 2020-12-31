@@ -41,7 +41,7 @@ index 8873d2e9..fedbef3b 100644
 +            do {
 +                if (ls[i].netns == NULL) break;
 +                char self_netns_path[PATH_MAX];
-+                ngx_snprintf(self_netns_path, PATH_MAX, "/proc/%d/ns/net%Z", getpid());
++                ngx_snprintf((u_char*)self_netns_path, PATH_MAX, "/proc/%d/ns/net%Z", getpid());
 +                orig_net_fd = open(self_netns_path, O_RDONLY);
 +                if (orig_net_fd == -1) {
 +                    ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
@@ -50,7 +50,7 @@ index 8873d2e9..fedbef3b 100644
 +                    break;
 +	        }
 +                char tgt_netns_path[PATH_MAX];
-+                ngx_snprintf(tgt_netns_path, PATH_MAX, "/var/run/netns/%s%Z", ls[i].netns);
++                ngx_snprintf((u_char*)tgt_netns_path, PATH_MAX, "/var/run/netns/%s%Z", ls[i].netns);
 +                int tgt_net_fd = open(tgt_netns_path, O_RDONLY);
 +                if (tgt_net_fd == -1) {
 +                    ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,

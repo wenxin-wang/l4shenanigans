@@ -154,22 +154,6 @@ index 1590f30e..e2679870 100644
  #if (NGX_STREAM_SSL)
  
      { ngx_string("proxy_ssl"),
-@@ -677,6 +685,15 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
-     ngx_connection_t             *c, *pc;
-     ngx_stream_upstream_t        *u;
-     ngx_stream_proxy_srv_conf_t  *pscf;
-+    struct sockaddr              *sa;
-+    ngx_stream_port_t            *port;
-+    struct sockaddr_in           *sin;
-+    ngx_stream_in_addr_t         *addr;
-+    ngx_stream_addr_conf_t       *addr_conf;
-+#if (NGX_HAVE_INET6)
-+    struct sockaddr_in6          *sin6;
-+    ngx_stream_in6_addr_t        *addr6;
-+#endif
- 
-     c = s->connection;
- 
 @@ -689,6 +706,8 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
      u->connected = 0;
      u->proxy_protocol = pscf->proxy_protocol;
