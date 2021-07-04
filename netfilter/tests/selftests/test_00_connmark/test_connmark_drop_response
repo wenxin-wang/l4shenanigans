@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -e
+trap 'trap_err $LINENO' ERR
+
+ip netns exec ns0 iptables -t mangle -I POSTROUTING -p icmp -d 192.168.1.2 -j CONNMARK --set-mark 0x1
+ip netns exec ns0 iptables -t mangle -I PREROUTING -m connmark --mark 0x1 -j DROP
+
+ip netns exec ns0 ping -W 0.3 -c 3 192.168.1.2 2>&1 | expect_no '3 received'
+
+ip netns exec ns0 iptables -t mangle -F POSTROUTING
+ip netns exec ns0 iptables -t mangle -F PREROUTING

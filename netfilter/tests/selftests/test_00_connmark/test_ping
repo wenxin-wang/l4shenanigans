@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set -e
+trap 'trap_err $LINENO' ERR
+
+ip netns exec ns0 ping -W 0.3 -c 3 192.168.1.2 2>&1 | expect_has '3 received'
