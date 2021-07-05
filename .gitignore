@@ -10,6 +10,7 @@ modules.builtin
 .cache.mk
 *.o
 *.ko
+*.mod
 *.mod.c
 *.d
 *.tar

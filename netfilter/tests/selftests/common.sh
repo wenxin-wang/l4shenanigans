@@ -84,7 +84,10 @@ expect_no() {
     fi
 }
 
-trap_err() {
+exit_on_err() {
+    if [ $# -eq 0 ]; then
+        return
+    fi
     log_error Error on line $1
     exit 1
 }
