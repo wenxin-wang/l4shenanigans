@@ -12,15 +12,12 @@
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0)
-#include <net/netfilter/nf_nat_core.h>
+#define COMPAT_NAT_CORE_HEADER
 #else
-#include <net/netfilter/nf_nat.h>
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 13, 0)
 #define COMPAT_CT_NO_DISABLE_DEFRAG_NS
 #endif
-
-#include <net/netfilter/nf_conntrack.h>
 
 #endif /* COMPAT_CONNTRACK_COMPAT_H */

@@ -1,0 +1,40 @@
+#!/bin/bash
+
+set -e
+
+cleanup() {
+  kill $iperf_server || :
+  kill $tcpdump0_pid || :
+  kill $tcpdump1_pid || :
+  ip netns exec ns0 iptables -t mangle -F POSTROUTING
+  ip netns exec ns1 iptables -t mangle -F PREROUTING
+  sleep 1
+  rmmod ipt_L4SHENANIGAN_ENCAP
+  rmmod ipt_L4SHENANIGAN_DECAP
+  exit_on_err $1
+}
+
+trap 'cleanup $LINENO' ERR
+
+insmod $__SRC__/ipt_L4SHENANIGAN_ENCAP.ko
+insmod $__SRC__/ipt_L4SHENANIGAN_DECAP.ko
+
+export XTABLES_LIBDIR=$__SRC__/tools
+
+ip netns exec ns0 iptables -t mangle -A POSTROUTING -p tcp -j L4SHENANIGAN_ENCAP
+ip netns exec ns1 iptables -t mangle -A PREROUTING -p tcp -j L4SHENANIGAN_DECAP
+
+unset XTABLES_LIBDIR
+ip netns exec ns1 iptables -t mangle -A PREROUTING -p tcp -j NFLOG
+
+ip netns exec ns0 tcpdump -w /tmp/tcp0.pcap &
+tcpdump0_pid=$!
+ip netns exec ns1 tcpdump -i nflog:0 -w /tmp/tcp1.pcap &
+tcpdump1_pid=$!
+
+ip netns exec ns1 iperf3 -s &
+iperf_server=$!
+sleep 0.5
+ip netns exec ns0 iperf3 -c 192.168.1.2 -t 3
+
+cleanup

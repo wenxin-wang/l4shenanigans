@@ -1,0 +1,23 @@
+#!/bin/bash
+set -e
+
+ip netns del ns0 || :
+ip netns del ns1 || :
+
+ip netns add ns0
+ip netns add ns1
+
+ip l add v0 type veth peer name v1
+ip l set v0 netns ns0
+ip l set v1 netns ns1
+
+ip netns exec ns0 ip l set lo up
+ip netns exec ns0 ip l set v0 up
+ip netns exec ns0 ip a add 192.168.1.1/24 dev v0
+
+ip netns exec ns1 ip l set lo up
+ip netns exec ns1 ip l set v1 up
+ip netns exec ns1 ip a add 192.168.1.2/24 dev v1
+
+rmmod ipt_L4SHENANIGAN_ENCAP || :
+rmmod ipt_L4SHENANIGAN_DECAP || :
