@@ -11,8 +11,6 @@ trap 'cleanup $LINENO' ERR
 
 insmod $__SRC__/ipt_L4SHENANIGAN_INVERT.ko
 
-export XTABLES_LIBDIR=$__SRC__/tools
-
 ip netns exec ns0 iptables -t mangle -A PREROUTING -j L4SHENANIGAN_INVERT
 ip netns exec ns0 iptables-save | expect_has L4SHENANIGAN_INVERT
 

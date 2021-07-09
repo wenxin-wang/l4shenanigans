@@ -5,6 +5,14 @@ __DIR__=$(cd ${BASH_SOURCE[0]%/*} && pwd)
 __SELFTESTS__=$__DIR__
 __SRC__=$(cd $__DIR__/../.. && pwd)
 . $__SELFTESTS__/common.sh
+
+__XTABLES_LIBDIR__=${__XTABLES_LIBDIR__:-$(pkg-config xtables --variable xtlibdir)}
+for f in ipt_DNAT ipt_MASQUERADE ipt_SNAT xt_MARK xt_CONNMARK xt_NFLOG \
+                     xt_mark xt_connmark xt_standard xt_tcp xt_udp; do
+  ln -sf $__XTABLES_LIBDIR__/lib$f.so $__SRC__/tools/
+done
+
+XTABLES_LIBDIR=$__SRC__/tools
 set +a
 
 run_test() {

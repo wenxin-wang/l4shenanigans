@@ -19,12 +19,9 @@ trap 'cleanup $LINENO' ERR
 insmod $__SRC__/ipt_L4SHENANIGAN_ENCAP.ko
 insmod $__SRC__/ipt_L4SHENANIGAN_DECAP.ko
 
-export XTABLES_LIBDIR=$__SRC__/tools
-
 ip netns exec ns0 iptables -t mangle -A POSTROUTING -p udp -j L4SHENANIGAN_ENCAP
 ip netns exec ns1 iptables -t mangle -A PREROUTING -p udp -j L4SHENANIGAN_DECAP
 
-unset XTABLES_LIBDIR
 ip netns exec ns1 iptables -t mangle -A PREROUTING -p udp -j NFLOG
 
 ip netns exec ns0 tcpdump -w /tmp/udp0.pcap &
