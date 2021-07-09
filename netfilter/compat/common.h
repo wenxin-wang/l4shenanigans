@@ -26,4 +26,8 @@
 #define __ro_after_init __read_mostly
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
+#define skb_frag_off(skb) ((skb)->page_offset)
+#endif
+
 #endif /* COMPAT_H */
