@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+set -x
+
+ip netns del ns0 || :
+ip netns del ns1 || :
+ip netns del ns2 || :
+
+rmmod ipt_L4SHENANIGAN_ENCAP || :
+rmmod ipt_L4SHENANIGAN_DECAP || :
+rmmod ipt_L4SHENANIGAN_DNAT || :

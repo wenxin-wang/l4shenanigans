@@ -1,0 +1,55 @@
+#!/bin/bash
+
+set -e
+set -x
+
+cleanup() {
+  kill $iperf_server || :
+  kill $tcpdump0_pid || :
+  kill $tcpdump1_pid || :
+  kill $tcpdump2_pid || :
+  ip netns exec ns0 iptables -t mangle -F OUTPUT
+  ip netns exec ns0 iptables -t nat -F OUTPUT
+  ip netns exec ns1 iptables -t mangle -F PREROUTING
+  ip netns exec ns1 iptables -t nat -F PREROUTING
+  ip netns exec ns1 iptables -t mangle -F POSTROUTING
+  ip netns exec ns1 iptables -t nat -F POSTROUTING
+  sleep 1
+  rmmod ipt_L4SHENANIGAN_ENCAP
+  rmmod ipt_L4SHENANIGAN_DECAP
+  rmmod ipt_L4SHENANIGAN_DNAT
+  exit_on_err $1
+}
+
+trap 'cleanup $LINENO' ERR
+
+insmod $__SRC__/ipt_L4SHENANIGAN_ENCAP.ko
+insmod $__SRC__/ipt_L4SHENANIGAN_DECAP.ko
+insmod $__SRC__/ipt_L4SHENANIGAN_DNAT.ko
+
+ip netns exec ns0 iptables -t mangle -A OUTPUT -d 192.168.2.2 -p tcp -j L4SHENANIGAN_ENCAP
+ip netns exec ns0 iptables -t nat -A OUTPUT -d 192.168.2.2 -p tcp -j DNAT --to-destination 192.168.1.2:50000
+
+ip netns exec ns1 iptables -t mangle -A PREROUTING -d 192.168.1.2 -p tcp --dport 50000 -j MARK --set-mark 0x1
+# ip netns exec ns1 iptables -t mangle -A PREROUTING -d 192.168.2.2 -p tcp -j MARK --set-mark 0x1
+ip netns exec ns1 iptables -t nat -A PREROUTING -m mark --mark 0x1 -j L4SHENANIGAN_DNAT
+# ip netns exec ns1 iptables -t nat -A PREROUTING -m mark --mark 0x1 -p tcp -j DNAT --to-destination 192.168.2.2:5201
+ip netns exec ns1 iptables -t mangle -A POSTROUTING -m mark --mark 0x1 -j L4SHENANIGAN_DECAP
+ip netns exec ns1 iptables -t nat -A POSTROUTING -m mark --mark 0x1 -j MASQUERADE
+
+# ip netns exec ns1 iptables -t mangle -A PREROUTING -p tcp -j NFLOG
+
+ip netns exec ns0 tcpdump -w /tmp/tcp0.pcap &
+tcpdump0_pid=$!
+ip netns exec ns1 tcpdump -i v2 -w /tmp/tcp1.pcap &
+# ip netns exec ns1 tcpdump -i nflog:0 -w /tmp/tcp1.pcap &
+tcpdump1_pid=$!
+ip netns exec ns2 tcpdump -w /tmp/tcp2.pcap &
+tcpdump2_pid=$!
+
+ip netns exec ns2 iperf3 -s &
+iperf_server=$!
+sleep 0.5
+ip netns exec ns0 iperf3 -c 192.168.2.2 -t 3
+
+cleanup

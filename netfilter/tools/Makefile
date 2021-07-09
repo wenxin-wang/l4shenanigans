@@ -5,7 +5,7 @@ XTABLES_SO_DIR = $(shell $(PKG_CONFIG) xtables --variable xtlibdir)
 
 CFLAGS = -O2 -Wall -I..
 
-objs = libipt_L4SHENANIGAN_INVERT.so libipt_L4SHENANIGAN_ENCAP.so libipt_L4SHENANIGAN_DECAP.so
+objs = libipt_L4SHENANIGAN_INVERT.so libipt_L4SHENANIGAN_ENCAP.so libipt_L4SHENANIGAN_DECAP.so libipt_L4SHENANIGAN_DNAT.so
 
 all: $(objs)
 
