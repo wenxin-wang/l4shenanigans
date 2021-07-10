@@ -25,7 +25,6 @@ static void l4shenanigan_dnat_print(const void * entry,
   UNUSED(entry);
   UNUSED(target);
   UNUSED(numeric);
-  printf(" L4SHENANIGAN_DNAT");
 }
 
 static void
@@ -33,7 +32,6 @@ l4shenanigan_dnat_save(const void * entry,
                          const struct xt_entry_target * target) {
   UNUSED(entry);
   UNUSED(target);
-  printf(" L4SHENANIGAN_DNAT");
 }
 
 static struct xtables_target l4shenanigan_dnat_reg = {
