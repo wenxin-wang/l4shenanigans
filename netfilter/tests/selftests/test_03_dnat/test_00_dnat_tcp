@@ -1,0 +1,34 @@
+#!/bin/bash
+
+set -e
+set -x
+
+cleanup() {
+  kill $iperf_server || :
+  kill $tcpdump0_pid || :
+  kill $tcpdump1_pid || :
+  kill $tcpdump2_pid || :
+  ip netns exec ns1 iptables -t nat -F PREROUTING
+  exit_on_err $1
+}
+
+trap 'cleanup $LINENO' ERR
+
+ip netns exec ns1 iptables -t nat -A PREROUTING -d 192.168.2.3 -p tcp -j DNAT --to-destination 192.168.2.2:40000
+
+# ip netns exec ns1 iptables -t mangle -A PREROUTING -p tcp -j NFLOG
+
+ip netns exec ns0 tcpdump -w /tmp/tcp0.pcap &
+tcpdump0_pid=$!
+ip netns exec ns1 tcpdump -i v2 -w /tmp/tcp1.pcap &
+# ip netns exec ns1 tcpdump -i nflog:0 -w /tmp/tcp1.pcap &
+tcpdump1_pid=$!
+ip netns exec ns2 tcpdump -w /tmp/tcp2.pcap &
+tcpdump2_pid=$!
+
+ip netns exec ns2 iperf3 -s -p 40000 &
+iperf_server=$!
+sleep 0.5
+ip netns exec ns0 iperf3 -c 192.168.2.3 -t 3
+
+cleanup

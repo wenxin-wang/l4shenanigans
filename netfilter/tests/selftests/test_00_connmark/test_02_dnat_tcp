@@ -1,0 +1,29 @@
+#!/bin/bash
+
+set -e
+set -x
+
+cleanup() {
+  kill $iperf_server || :
+  kill $tcpdump0_pid || :
+  ip netns exec ns0 iptables -F INPUT
+  ip netns exec ns0 iptables -t nat -F OUTPUT
+  sleep 1
+  exit_on_err $1
+}
+
+trap 'cleanup $LINENO' ERR
+
+ip netns exec ns0 ip r add 192.168.2.2 via 192.168.1.2
+ip netns exec ns0 iptables -t nat -A OUTPUT -d 192.168.2.2 -p tcp -j DNAT --to-destination 192.168.1.2:40000
+ip netns exec ns0 iptables -A INPUT -p tcp -j NFLOG
+
+ip netns exec ns0 tcpdump -i nflog:0 -w /tmp/tcp0.pcap &
+tcpdump0_pid=$!
+
+ip netns exec ns1 iperf3 -s -p 40000 &
+iperf_server=$!
+sleep 0.5
+ip netns exec ns0 iperf3 -c 192.168.2.2 -t 3
+
+cleanup
