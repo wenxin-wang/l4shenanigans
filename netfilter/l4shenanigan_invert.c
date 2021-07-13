@@ -17,10 +17,10 @@
 
 #ifdef __LP64__
 /* 64-bit */
-#define XOR_MASK_PTR 0xfeeff7dbbd7ffeef
+#define XOR_MASK_PTR 0xffffffffffffffff
 #else
 /* 32-bit */
-#define XOR_MASK_PTR 0xfeeff7db
+#define XOR_MASK_PTR 0xffffffff
 #endif
 
 #define XOR_MASK_BYTE 0xff
