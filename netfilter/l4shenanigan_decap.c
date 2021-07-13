@@ -27,7 +27,7 @@ static int l4shenanigan_decap_udp(struct sk_buff *skb, unsigned int udphoff) {
   __be16 encap_dport;
   int ret;
 
-  ret = skb_ensure_writable(skb, udphoff + (int)sizeof(struct udphdr));
+  ret = skb_ensure_writable(skb, udphoff + (int)sizeof(struct udphdr) + ENCAP_LEN);
   if (ret) {
     pr_err_ratelimited("l4shenanigan_decap_udp: failed to ensure udp "
                        "header writable %d\n",
@@ -93,9 +93,9 @@ static int l4shenanigan_decap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
     return -1;
   }
 
-  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrlen);
+  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrlen + ENCAP_LEN);
   if (ret) {
-    pr_err_ratelimited("l4shenanigan_decap_tcp: failed to ensure full tcp "
+    pr_err_ratelimited("l4shenanigan_decap_tcp: failed to ensure full encap "
                        "header writable %d\n",
                        ret);
     return ret;
