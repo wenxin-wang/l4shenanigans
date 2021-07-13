@@ -9,8 +9,7 @@
 #include <net/udp.h>
 #include <uapi/linux/in.h>
 
-#define ENCAP_LEN (4 + 2)                 // bytes
-#define TCPOLEN_ENCAP (1 + 1 + ENCAP_LEN) // 8 bytes, no need for padding
+#define ENCAP_LEN (2 + 4 + 2) // bytes
 
 int encap_adjust_headroom(struct sk_buff *skb, int nhead, int payloadoff,
                           int csum_offset);
@@ -26,10 +25,10 @@ void udp_unfill_encap(struct sk_buff *skb, struct udphdr *udph,
 int udp_load_encap(struct udphdr *udph, __be32 *encap_daddr,
                    __be16 *encap_dport);
 
-void tcp_fill_encap(struct sk_buff *skb, struct tcphdr *tcph);
+void tcp_fill_encap(struct sk_buff *skb, struct tcphdr *tcph, int tcp_hdrlen);
 void tcp_unfill_encap(struct sk_buff *skb, struct tcphdr *tcph,
                       __be32 encap_daddr, __be16 encap_dport);
-int tcp_load_encap(struct tcphdr *tcph, __be32 *encap_daddr,
+int tcp_load_encap(struct tcphdr *tcph, int tcp_hdrlen, __be32 *encap_daddr,
                    __be16 *encap_dport);
 
 #endif /* L4SHENANIGANS_PROTOCOL_H */

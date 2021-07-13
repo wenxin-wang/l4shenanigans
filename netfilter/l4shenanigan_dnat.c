@@ -81,7 +81,7 @@ static int l4shenanigan_dnat_parse_tcp(struct sk_buff *skb,
     return ret;
   }
 
-  return tcp_load_encap(tcph, encap_daddr, encap_dport);
+  return tcp_load_encap(tcph, tcp_hdrlen, encap_daddr, encap_dport);
 }
 
 static unsigned int l4shenanigan_dnat_tg4(struct sk_buff *skb,

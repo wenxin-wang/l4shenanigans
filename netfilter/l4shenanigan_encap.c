@@ -5,12 +5,19 @@
 #include <linux/skbuff.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
-#include <net/netfilter/ipv4/nf_defrag_ipv4.h>
+#include <net/netfilter/nf_conntrack.h>
 #include <net/tcp.h>
 #include <net/udp.h>
 #include <uapi/linux/in.h>
 
 #include "compat/conntrack.h"
+#ifdef COMPAT_NAT_CORE_HEADER
+#include <net/netfilter/nf_nat_core.h>
+#else
+#include <net/netfilter/nf_nat.h>
+#endif
+#include <net/netfilter/nf_conntrack_seqadj.h>
+
 #include "l4shenanigans_protocol.h"
 #include "l4shenanigans_uapi.h"
 
@@ -47,6 +54,8 @@ static int l4shenanigan_encap_udp(struct sk_buff *skb, unsigned int udphoff) {
 static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   struct tcphdr *tcph;
   int ret, tcp_hdrlen;
+  enum ip_conntrack_info ctinfo;
+  struct nf_conn *ct;
 
   ret = skb_ensure_writable(skb, tcphoff + (int)sizeof(struct tcphdr));
   if (ret) {
@@ -57,9 +66,6 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   }
 
   tcph = (struct tcphdr *)(skb_network_header(skb) + tcphoff);
-  if (!tcph->syn) {
-    return 0;
-  }
 
   tcp_hdrlen = tcph->doff * 4;
   if (tcp_hdrlen < sizeof(struct tcphdr)) {
@@ -67,25 +73,32 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
                        tcp_hdrlen);
     return -1;
   }
-  if (tcp_hdrlen + TCPOLEN_ENCAP > 15 * 4) {
-    pr_info_ratelimited("l4shenanigan_encap_tcp: no room for encap %d\n",
-                        tcp_hdrlen);
+
+  if (!tcph->syn) {
     return 0;
   }
 
-  ret = encap_adjust_headroom(skb, TCPOLEN_ENCAP,
-                              tcphoff + (int)sizeof(struct tcphdr),
+  ret = encap_adjust_headroom(skb, ENCAP_LEN, tcphoff + tcp_hdrlen,
                               tcphoff + offsetof(struct tcphdr, check));
   if (ret) {
     return ret;
   }
 
-  update_iphdr_len(skb, TCPOLEN_ENCAP);
+  update_iphdr_len(skb, ENCAP_LEN);
 
   tcph = (struct tcphdr *)(skb_network_header(skb) + tcphoff);
-  update_tcp_len(skb, tcph, skb->len - tcphoff - TCPOLEN_ENCAP, TCPOLEN_ENCAP);
+  update_tcp_len(skb, tcph, skb->len - tcphoff - ENCAP_LEN, ENCAP_LEN);
 
-  tcp_fill_encap(skb, tcph);
+  tcp_fill_encap(skb, tcph, tcp_hdrlen);
+
+  ct = nf_ct_get(skb, &ctinfo);
+  WARN_ON(!(ct != NULL && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
+                           ctinfo == IP_CT_RELATED_REPLY)));
+  if (!nfct_seqadj(ct) && !nfct_seqadj_ext_add(ct)) {
+    pr_err_ratelimited("l4shenanigan_encap_tcp: nfct_seqadj_ext_add failed\n");
+    return -1;
+  }
+  nf_ct_seqadj_set(ct, ctinfo, tcph->seq, ENCAP_LEN);
   return 0;
 }
 
@@ -115,16 +128,15 @@ static unsigned int l4shenanigan_encap_tg4(struct sk_buff *skb,
 }
 
 static int l4shenanigan_encap_tg4_check(const struct xt_tgchk_param *par) {
-  int err = nf_defrag_ipv4_enable(par->net);
-  if (err) {
-    return err;
-  }
+#ifndef COMPAT_CT_NO_NETNS_GETPUT
+  nf_ct_netns_get(par->net, par->family);
+#endif
   return 0;
 }
 
 static void l4shenanigan_encap_tg4_destroy(const struct xt_tgdtor_param *par) {
-#ifndef COMPAT_CT_NO_DISABLE_DEFRAG_NS
-  nf_defrag_ipv4_disable(par->net);
+#ifndef COMPAT_CT_NO_NETNS_GETPUT
+  nf_ct_netns_put(par->net, par->family);
 #endif
 }
 

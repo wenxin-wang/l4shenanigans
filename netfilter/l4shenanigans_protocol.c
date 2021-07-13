@@ -8,6 +8,8 @@
 
 #include "l4shenanigans_protocol.h"
 
+#define ENCAP_MAGIC 0xdb57
+
 static void __move_headroom(struct sk_buff *skb, int nhead, int payloadoff,
                             int csum_offset) {
   int nhdiff = skb_network_header(skb) - skb->data;
@@ -67,30 +69,56 @@ void update_udp_len(struct sk_buff *skb, struct udphdr *udph, int nhead) {
   }
 }
 
+static void __fill_encap(char *payload, struct sk_buff *skb, __be32 daddr,
+                         __be16 dport, __sum16 *csum) {
+  *(__be16 *)(&payload[0]) = htons(ENCAP_MAGIC);
+  *(__be16 *)(&payload[2]) = dport;
+  *(__be32 *)(&payload[4]) = daddr;
+  if (csum) {
+    inet_proto_csum_replace2(csum, skb, 0, htons(ENCAP_MAGIC), false);
+    inet_proto_csum_replace2(csum, skb, 0, dport, false);
+    inet_proto_csum_replace4(csum, skb, 0, daddr, false);
+  }
+}
+
+static void __unfill_encap(struct sk_buff *skb, __be32 daddr, __be16 dport,
+                           __sum16 *csum) {
+  if (!csum) {
+    return;
+  }
+  inet_proto_csum_replace2(csum, skb, htons(ENCAP_MAGIC), 0, false);
+  inet_proto_csum_replace2(csum, skb, dport, 0, false);
+  inet_proto_csum_replace4(csum, skb, daddr, 0, false);
+}
+
+static int __load_encap(const char *payload, __be32 *encap_daddr,
+                        __be16 *encap_dport) {
+  if (*(__be16 *)(&payload[0]) != htons(ENCAP_MAGIC)) {
+    return -1;
+  }
+  *encap_dport = *(__be16 *)(&payload[2]);
+  *encap_daddr = *(__be32 *)(&payload[4]);
+  return 0;
+}
+
 void udp_fill_encap(struct sk_buff *skb, struct udphdr *udph) {
   char *payload = ((char *)udph) + sizeof(struct udphdr);
   bool no_csum_update = skb->ip_summed == CHECKSUM_PARTIAL || udph->check == 0;
   struct iphdr *iph = ip_hdr(skb);
-  *(__be32 *)(&payload[0]) = iph->daddr;
-  *(__be16 *)(&payload[4]) = udph->dest;
-  if (!no_csum_update) {
-    inet_proto_csum_replace4(&udph->check, skb, 0, iph->daddr, false);
-    inet_proto_csum_replace2(&udph->check, skb, 0, udph->dest, false);
-    if (udph->check == 0) {
-      udph->check = 0xffff;
-    }
+  __fill_encap(payload, skb, iph->daddr, udph->dest,
+               no_csum_update ? NULL : &udph->check);
+  if (!no_csum_update && udph->check == 0) {
+    udph->check = 0xffff;
   }
 }
 
 void udp_unfill_encap(struct sk_buff *skb, struct udphdr *udph,
                       __be32 encap_daddr, __be16 encap_dport) {
   bool no_csum_update = skb->ip_summed == CHECKSUM_PARTIAL || udph->check == 0;
-  if (!no_csum_update) {
-    inet_proto_csum_replace4(&udph->check, skb, encap_daddr, 0, false);
-    inet_proto_csum_replace2(&udph->check, skb, encap_dport, 0, false);
-    if (udph->check == 0) {
-      udph->check = 0xffff;
-    }
+  __unfill_encap(skb, encap_daddr, encap_dport,
+                 no_csum_update ? NULL : &udph->check);
+  if (!no_csum_update && udph->check == 0) {
+    udph->check = 0xffff;
   }
 }
 
@@ -102,75 +130,34 @@ int udp_load_encap(struct udphdr *udph, __be32 *encap_daddr,
                         ntohs(udph->len));
     return -1;
   }
-  *encap_daddr = *(__be32 *)payload;
-  *encap_dport = *(__be16 *)(payload + sizeof(__be32));
-  return 0;
+  return __load_encap(payload, encap_daddr, encap_dport);
 }
 
 void update_tcp_len(struct sk_buff *skb, struct tcphdr *tcph, int old_len,
                     int nhead) {
-  __be16 old_val;
   // pseudo header change
   inet_proto_csum_replace2(&tcph->check, skb, htons(old_len),
                            htons(old_len + nhead), true);
-  old_val = ((__be16 *)tcph)[6];
-  tcph->doff += nhead / 4;
-  // real tcp header change
-  inet_proto_csum_replace2(&tcph->check, skb, old_val, ((__be16 *)tcph)[6],
-                           false);
 }
 
-void tcp_fill_encap(struct sk_buff *skb, struct tcphdr *tcph) {
+void tcp_fill_encap(struct sk_buff *skb, struct tcphdr *tcph, int tcp_hdrlen) {
+
+  char *payload = ((char *)tcph) + tcp_hdrlen;
+  bool no_csum_update = skb->ip_summed == CHECKSUM_PARTIAL;
   struct iphdr *iph = ip_hdr(skb);
-  char *payload = ((char *)tcph) + (int)sizeof(struct tcphdr);
-  payload[0] = TCPOPT_EXP;
-  payload[1] = TCPOLEN_ENCAP;
-  *(__be16 *)(&payload[2]) = htons((ntohl(iph->daddr) & 0xffff0000) >> 16);
-  *(__be16 *)(&payload[4]) = htons(ntohl(iph->daddr) & 0x0000ffff);
-  *(__be16 *)(&payload[6]) = tcph->dest;
-  if (skb->ip_summed == CHECKSUM_PARTIAL) {
-    return;
-  }
-  inet_proto_csum_replace4(&tcph->check, skb, 0, *(__be32 *)(&payload[0]),
-                           false);
-  inet_proto_csum_replace4(&tcph->check, skb, 0, *(__be32 *)(&payload[4]),
-                           false);
+  __fill_encap(payload, skb, iph->daddr, tcph->dest,
+               no_csum_update ? NULL : &tcph->check);
 }
 
 void tcp_unfill_encap(struct sk_buff *skb, struct tcphdr *tcph,
                       __be32 encap_daddr, __be16 encap_dport) {
-  u8 opt[2];
-  if (skb->ip_summed == CHECKSUM_PARTIAL) {
-    return;
-  }
-  opt[0] = TCPOPT_EXP;
-  opt[1] = TCPOLEN_ENCAP;
-  inet_proto_csum_replace2(&tcph->check, skb, *(__be16 *)opt, 0, false);
-  inet_proto_csum_replace4(&tcph->check, skb, encap_daddr, 0, false);
-  inet_proto_csum_replace2(&tcph->check, skb, encap_dport, 0, false);
+  bool no_csum_update = skb->ip_summed == CHECKSUM_PARTIAL;
+  __unfill_encap(skb, encap_daddr, encap_dport,
+                 no_csum_update ? NULL : &tcph->check);
 }
 
-static inline unsigned int optlen(const u_int8_t *opt, unsigned int offset) {
-  /* Beware zero-length options: make finite progress */
-  if (opt[offset] <= TCPOPT_NOP || opt[offset + 1] == 0)
-    return 1;
-  else
-    return opt[offset + 1];
-}
-
-int tcp_load_encap(struct tcphdr *tcph, __be32 *encap_daddr,
+int tcp_load_encap(struct tcphdr *tcph, int tcp_hdrlen, __be32 *encap_daddr,
                    __be16 *encap_dport) {
-  u8 *opt = (u8 *)tcph;
-  int i, tcp_hdrlen = tcph->doff * 4;
-  for (i = sizeof(struct tcphdr); i <= tcp_hdrlen - TCPOLEN_ENCAP;
-       i += optlen(opt, i)) {
-    if (opt[i] == TCPOPT_EXP && opt[i + 1] == TCPOLEN_ENCAP) {
-      ((__be16 *)encap_daddr)[0] = *(__be16 *)(&opt[i + 2]);
-      ((__be16 *)encap_daddr)[1] = *(__be16 *)(&opt[i + 4]);
-      *encap_dport = *(__be16 *)(&opt[i + 6]);
-      return 0;
-    }
-  }
-  pr_info_ratelimited("tcp_load_encap: no encap found %d\n", tcp_hdrlen);
-  return -1;
+  char *payload = ((char *)tcph) + tcp_hdrlen;
+  return __load_encap(payload, encap_daddr, encap_dport);
 }
