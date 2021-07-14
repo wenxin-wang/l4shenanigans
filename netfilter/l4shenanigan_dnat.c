@@ -27,7 +27,7 @@ static int l4shenanigan_dnat_parse_udp(struct sk_buff *skb,
   struct udphdr *udph;
   int ret;
 
-  ret = skb_ensure_writable(skb, udphoff + (int)sizeof(struct udphdr));
+  ret = skb_ensure_writable(skb, udphoff + (int)sizeof(struct udphdr) + ENCAP_LEN);
   if (ret) {
     pr_err_ratelimited("l4shenanigan_dnat_udp: failed to ensure udp "
                        "header writable %d\n",
@@ -73,7 +73,7 @@ static int l4shenanigan_dnat_parse_tcp(struct sk_buff *skb,
     return -1;
   }
 
-  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrlen);
+  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrlen + ENCAP_LEN);
   if (ret) {
     pr_err_ratelimited("l4shenanigan_dnat_tcp: failed to ensure full tcp "
                        "header writable %d\n",
