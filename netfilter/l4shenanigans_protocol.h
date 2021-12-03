@@ -25,10 +25,10 @@ void udp_unfill_encap(struct sk_buff *skb, struct udphdr *udph,
 int udp_load_encap(struct udphdr *udph, __be32 *encap_daddr,
                    __be16 *encap_dport);
 
-void tcp_fill_encap(struct sk_buff *skb, struct tcphdr *tcph, int tcp_hdrlen);
+void tcp_fill_encap(struct sk_buff *skb, struct tcphdr *tcph, int tcp_hdrl);
 void tcp_unfill_encap(struct sk_buff *skb, struct tcphdr *tcph,
                       __be32 encap_daddr, __be16 encap_dport);
-int tcp_load_encap(struct tcphdr *tcph, int tcp_hdrlen, __be32 *encap_daddr,
+int tcp_load_encap(struct tcphdr *tcph, int tcp_hdrl, __be32 *encap_daddr,
                    __be16 *encap_dport);
 
 #endif /* L4SHENANIGANS_PROTOCOL_H */

@@ -60,7 +60,7 @@ static int l4shenanigan_encap_udp(struct sk_buff *skb, unsigned int udphoff) {
 
 static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   struct tcphdr *tcph;
-  int ret, tcp_hdrlen;
+  int ret, tcp_hdrl;
   enum ip_conntrack_info ctinfo;
   struct nf_conn *ct;
 
@@ -74,10 +74,10 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
 
   tcph = (struct tcphdr *)(skb_network_header(skb) + tcphoff);
 
-  tcp_hdrlen = tcph->doff * 4;
-  if (tcp_hdrlen < sizeof(struct tcphdr)) {
+  tcp_hdrl = tcph->doff * 4;
+  if (tcp_hdrl < sizeof(struct tcphdr)) {
     pr_err_ratelimited("l4shenanigan_encap_tcp: tcp header too small %d\n",
-                       tcp_hdrlen);
+                       tcp_hdrl);
     return -1;
   }
 
@@ -85,7 +85,7 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
     return 0;
   }
 
-  ret = encap_adjust_headroom(skb, ENCAP_LEN, tcphoff + tcp_hdrlen,
+  ret = encap_adjust_headroom(skb, ENCAP_LEN, tcphoff + tcp_hdrl,
                               tcphoff + offsetof(struct tcphdr, check));
   if (ret) {
     pr_err_ratelimited("l4shenanigan_encap_tcp: failed to adjust headroom %d\n",
@@ -98,7 +98,7 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   tcph = (struct tcphdr *)(skb_network_header(skb) + tcphoff);
   update_tcp_len(skb, tcph, skb->len - tcphoff - ENCAP_LEN, ENCAP_LEN);
 
-  tcp_fill_encap(skb, tcph, tcp_hdrlen);
+  tcp_fill_encap(skb, tcph, tcp_hdrl);
 
   ct = nf_ct_get(skb, &ctinfo);
   if (ct != NULL && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||

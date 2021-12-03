@@ -198,7 +198,7 @@ static int l4shenanigan_invert_udp(struct sk_buff *skb, unsigned int udphoff) {
 static int l4shenanigan_invert_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   struct tcphdr *tcph;
   char *payload;
-  int ret, headlen, tcp_hdrlen;
+  int ret, headlen, tcp_hdrl;
   bool no_csum_update;
 
   ret = skb_ensure_writable(skb, tcphoff + (int)sizeof(struct tcphdr));
@@ -207,20 +207,20 @@ static int l4shenanigan_invert_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   }
 
   tcph = (struct tcphdr *)(skb_network_header(skb) + tcphoff);
-  tcp_hdrlen = tcph->doff * 4;
+  tcp_hdrl = tcph->doff * 4;
 
-  if (tcp_hdrlen < sizeof(struct tcphdr)) {
+  if (tcp_hdrl < sizeof(struct tcphdr)) {
     return -1;
   }
 
-  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrlen);
+  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrl);
   if (ret) {
     return ret;
   }
 
   headlen = skb_headlen(skb) - tcphoff -
-            tcp_hdrlen; // tcp payload length in skb header
-  payload = ((char *)tcph) + tcp_hdrlen;
+            tcp_hdrl; // tcp payload length in skb header
+  payload = ((char *)tcph) + tcp_hdrl;
   no_csum_update = skb->ip_summed == CHECKSUM_PARTIAL;
   if (no_csum_update) {
     // gso/gro enabled, no need to checksum

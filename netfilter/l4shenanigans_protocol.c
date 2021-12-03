@@ -142,9 +142,9 @@ void update_tcp_len(struct sk_buff *skb, struct tcphdr *tcph, int old_len,
                            htons(old_len + nhead), true);
 }
 
-void tcp_fill_encap(struct sk_buff *skb, struct tcphdr *tcph, int tcp_hdrlen) {
+void tcp_fill_encap(struct sk_buff *skb, struct tcphdr *tcph, int tcp_hdrl) {
 
-  char *payload = ((char *)tcph) + tcp_hdrlen;
+  char *payload = ((char *)tcph) + tcp_hdrl;
   bool no_csum_update = skb->ip_summed == CHECKSUM_PARTIAL;
   struct iphdr *iph = ip_hdr(skb);
   __fill_encap(payload, skb, iph->daddr, tcph->dest,
@@ -158,8 +158,8 @@ void tcp_unfill_encap(struct sk_buff *skb, struct tcphdr *tcph,
                  no_csum_update ? NULL : &tcph->check);
 }
 
-int tcp_load_encap(struct tcphdr *tcph, int tcp_hdrlen, __be32 *encap_daddr,
+int tcp_load_encap(struct tcphdr *tcph, int tcp_hdrl, __be32 *encap_daddr,
                    __be16 *encap_dport) {
-  char *payload = ((char *)tcph) + tcp_hdrlen;
+  char *payload = ((char *)tcph) + tcp_hdrl;
   return __load_encap(payload, encap_daddr, encap_dport);
 }

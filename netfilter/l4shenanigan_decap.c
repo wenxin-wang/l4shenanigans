@@ -68,7 +68,7 @@ static int l4shenanigan_decap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   struct tcphdr *tcph;
   __be32 encap_daddr;
   __be16 encap_dport;
-  int ret, tcp_hdrlen;
+  int ret, tcp_hdrl;
   enum ip_conntrack_info ctinfo;
   struct nf_conn *ct;
 
@@ -85,15 +85,15 @@ static int l4shenanigan_decap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
     return 0;
   }
 
-  tcp_hdrlen = tcph->doff * 4;
+  tcp_hdrl = tcph->doff * 4;
 
-  if (tcp_hdrlen < sizeof(struct tcphdr)) {
+  if (tcp_hdrl < sizeof(struct tcphdr)) {
     pr_err_ratelimited("l4shenanigan_decap_tcp: tcp header too small %d\n",
-                       tcp_hdrlen);
+                       tcp_hdrl);
     return -1;
   }
 
-  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrlen + ENCAP_LEN);
+  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrl + ENCAP_LEN);
   if (ret) {
     pr_err_ratelimited("l4shenanigan_decap_tcp: failed to ensure full encap "
                        "header writable %d\n",
@@ -101,12 +101,12 @@ static int l4shenanigan_decap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
     return ret;
   }
 
-  ret = tcp_load_encap(tcph, tcp_hdrlen, &encap_daddr, &encap_dport);
+  ret = tcp_load_encap(tcph, tcp_hdrl, &encap_daddr, &encap_dport);
   if (ret) {
     return ret;
   }
 
-  ret = encap_adjust_headroom(skb, -ENCAP_LEN, tcphoff + tcp_hdrlen,
+  ret = encap_adjust_headroom(skb, -ENCAP_LEN, tcphoff + tcp_hdrl,
                               tcphoff + offsetof(struct tcphdr, check));
   if (ret) {
     return ret;

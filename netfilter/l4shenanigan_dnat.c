@@ -50,7 +50,7 @@ static int l4shenanigan_dnat_parse_tcp(struct sk_buff *skb,
                                        __be32 *encap_daddr,
                                        __be16 *encap_dport) {
   struct tcphdr *tcph;
-  int ret, tcp_hdrlen;
+  int ret, tcp_hdrl;
 
   ret = skb_ensure_writable(skb, tcphoff + (int)sizeof(struct tcphdr));
   if (ret) {
@@ -65,15 +65,15 @@ static int l4shenanigan_dnat_parse_tcp(struct sk_buff *skb,
     return 0;
   }
 
-  tcp_hdrlen = tcph->doff * 4;
+  tcp_hdrl = tcph->doff * 4;
 
-  if (tcp_hdrlen < sizeof(struct tcphdr)) {
+  if (tcp_hdrl < sizeof(struct tcphdr)) {
     pr_err_ratelimited("l4shenanigan_dnat_tcp: tcp header too small %d\n",
-                       tcp_hdrlen);
+                       tcp_hdrl);
     return -1;
   }
 
-  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrlen + ENCAP_LEN);
+  ret = skb_ensure_writable(skb, tcphoff + tcp_hdrl + ENCAP_LEN);
   if (ret) {
     pr_err_ratelimited("l4shenanigan_dnat_tcp: failed to ensure full tcp "
                        "header writable %d\n",
@@ -81,7 +81,7 @@ static int l4shenanigan_dnat_parse_tcp(struct sk_buff *skb,
     return ret;
   }
 
-  return tcp_load_encap(tcph, tcp_hdrlen, encap_daddr, encap_dport);
+  return tcp_load_encap(tcph, tcp_hdrl, encap_daddr, encap_dport);
 }
 
 static unsigned int l4shenanigan_dnat_tg4(struct sk_buff *skb,
