@@ -94,6 +94,8 @@ static void __unfill_encap(struct sk_buff *skb, __be32 daddr, __be16 dport,
 static int __load_encap(const char *payload, __be32 *encap_daddr,
                         __be16 *encap_dport) {
   if (*(__be16 *)(&payload[0]) != htons(ENCAP_MAGIC)) {
+    pr_info_ratelimited("__load_encap: magic mismatch %x\n",
+                        *(__be16 *)(&payload[0]));
     return -1;
   }
   *encap_dport = *(__be16 *)(&payload[2]);
