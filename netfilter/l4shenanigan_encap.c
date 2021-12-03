@@ -92,13 +92,14 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   tcp_fill_encap(skb, tcph, tcp_hdrlen);
 
   ct = nf_ct_get(skb, &ctinfo);
-  WARN_ON(!(ct != NULL && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
-                           ctinfo == IP_CT_RELATED_REPLY)));
-  if (!nfct_seqadj(ct) && !nfct_seqadj_ext_add(ct)) {
-    pr_err_ratelimited("l4shenanigan_encap_tcp: nfct_seqadj_ext_add failed\n");
-    return -1;
+  if (ct != NULL && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
+                           ctinfo == IP_CT_RELATED_REPLY)) {
+    if (!nfct_seqadj(ct) && !nfct_seqadj_ext_add(ct)) {
+      pr_err_ratelimited("l4shenanigan_encap_tcp: nfct_seqadj_ext_add failed\n");
+      return -1;
+    }
+    nf_ct_seqadj_set(ct, ctinfo, tcph->seq, ENCAP_LEN);
   }
-  nf_ct_seqadj_set(ct, ctinfo, tcph->seq, ENCAP_LEN);
   return 0;
 }
 
