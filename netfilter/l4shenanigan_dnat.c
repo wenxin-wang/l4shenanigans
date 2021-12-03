@@ -17,6 +17,7 @@
 #include <net/netfilter/nf_nat.h>
 #endif
 
+#include "l4shenanigans_printk.h"
 #include "l4shenanigans_protocol.h"
 #include "l4shenanigans_uapi.h"
 
@@ -29,7 +30,7 @@ static int l4shenanigan_dnat_parse_udp(struct sk_buff *skb,
 
   ret = skb_ensure_writable(skb, udphoff + (int)sizeof(struct udphdr) + ENCAP_LEN);
   if (ret) {
-    pr_err_ratelimited("l4shenanigan_dnat_udp: failed to ensure udp "
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_dnat_udp: failed to ensure udp "
                        "header writable %d\n",
                        ret);
     return ret;
@@ -37,8 +38,8 @@ static int l4shenanigan_dnat_parse_udp(struct sk_buff *skb,
 
   udph = (struct udphdr *)(skb_network_header(skb) + udphoff);
   if (ntohs(udph->len) < sizeof(struct udphdr)) {
-    pr_info_ratelimited("l4shenanigan_dnat_udp: udp header too small %d\n",
-                        ntohs(udph->len));
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_dnat_udp: udp header too small %d\n",
+                       ntohs(udph->len));
     return -1;
   }
 
@@ -54,7 +55,7 @@ static int l4shenanigan_dnat_parse_tcp(struct sk_buff *skb,
 
   ret = skb_ensure_writable(skb, tcphoff + (int)sizeof(struct tcphdr));
   if (ret) {
-    pr_err_ratelimited("l4shenanigan_dnat_tcp: failed to ensure base tcp "
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_dnat_tcp: failed to ensure base tcp "
                        "header writable %d\n",
                        ret);
     return ret;
@@ -68,14 +69,14 @@ static int l4shenanigan_dnat_parse_tcp(struct sk_buff *skb,
   tcp_hdrl = tcph->doff * 4;
 
   if (tcp_hdrl < sizeof(struct tcphdr)) {
-    pr_err_ratelimited("l4shenanigan_dnat_tcp: tcp header too small %d\n",
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_dnat_tcp: tcp header too small %d\n",
                        tcp_hdrl);
     return -1;
   }
 
   ret = skb_ensure_writable(skb, tcphoff + tcp_hdrl + ENCAP_LEN);
   if (ret) {
-    pr_err_ratelimited("l4shenanigan_dnat_tcp: failed to ensure full tcp "
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_dnat_tcp: failed to ensure full tcp "
                        "header writable %d\n",
                        ret);
     return ret;
@@ -116,7 +117,7 @@ static unsigned int l4shenanigan_dnat_tg4(struct sk_buff *skb,
     return XT_CONTINUE;
   }
   if (ret) {
-    pr_err_ratelimited("l4shenanigan_dnat_tg4: failed to parse encap %d\n",
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_dnat_tg4: failed to parse encap %d\n",
                        ret);
     return NF_DROP;
   }

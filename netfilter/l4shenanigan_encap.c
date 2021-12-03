@@ -18,6 +18,7 @@
 #endif
 #include <net/netfilter/nf_conntrack_seqadj.h>
 
+#include "l4shenanigans_printk.h"
 #include "l4shenanigans_protocol.h"
 #include "l4shenanigans_uapi.h"
 
@@ -27,7 +28,7 @@ static int l4shenanigan_encap_udp(struct sk_buff *skb, unsigned int udphoff) {
 
   ret = skb_ensure_writable(skb, udphoff + (int)sizeof(struct udphdr));
   if (ret) {
-    pr_err_ratelimited("l4shenanigan_encap_udp: failed to ensure base udp "
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_encap_udp: failed to ensure base udp "
                        "header writable %d\n",
                        ret);
     return ret;
@@ -35,7 +36,7 @@ static int l4shenanigan_encap_udp(struct sk_buff *skb, unsigned int udphoff) {
 
   udph = (struct udphdr *)(skb_network_header(skb) + udphoff);
   if (ntohs(udph->len) < sizeof(struct udphdr)) {
-    pr_err_ratelimited("l4shenanigan_encap_udp: udp header too small %d\n",
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_encap_udp: udp header too small %d\n",
                        ntohs(udph->len));
     return -1;
   }
@@ -44,7 +45,7 @@ static int l4shenanigan_encap_udp(struct sk_buff *skb, unsigned int udphoff) {
                               udphoff + (int)sizeof(struct udphdr),
                               udphoff + offsetof(struct udphdr, check));
   if (ret) {
-    pr_err_ratelimited("l4shenanigan_encap_udp: failed to adjust headroom %d\n",
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_encap_udp: failed to adjust headroom %d\n",
                        ret);
     return ret;
   }
@@ -66,7 +67,7 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
 
   ret = skb_ensure_writable(skb, tcphoff + (int)sizeof(struct tcphdr));
   if (ret) {
-    pr_err_ratelimited("l4shenanigan_encap_tcp: failed to ensure base tcp "
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_encap_tcp: failed to ensure base tcp "
                        "header writable %d\n",
                        ret);
     return ret;
@@ -76,7 +77,7 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
 
   tcp_hdrl = tcph->doff * 4;
   if (tcp_hdrl < sizeof(struct tcphdr)) {
-    pr_err_ratelimited("l4shenanigan_encap_tcp: tcp header too small %d\n",
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_encap_tcp: tcp header too small %d\n",
                        tcp_hdrl);
     return -1;
   }
@@ -88,7 +89,7 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   ret = encap_adjust_headroom(skb, ENCAP_LEN, tcphoff + tcp_hdrl,
                               tcphoff + offsetof(struct tcphdr, check));
   if (ret) {
-    pr_err_ratelimited("l4shenanigan_encap_tcp: failed to adjust headroom %d\n",
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_encap_tcp: failed to adjust headroom %d\n",
                        ret);
     return ret;
   }
@@ -104,12 +105,12 @@ static int l4shenanigan_encap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   if (ct != NULL && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
                            ctinfo == IP_CT_RELATED_REPLY)) {
     if (!nfct_seqadj(ct) && !nfct_seqadj_ext_add(ct)) {
-      pr_err_ratelimited("l4shenanigan_encap_tcp: nfct_seqadj_ext_add failed\n");
+      PR_ERR_RATELIMITED(skb, "l4shenanigan_encap_tcp: nfct_seqadj_ext_add failed\n");
       return -1;
     }
     nf_ct_seqadj_set(ct, ctinfo, tcph->seq, ENCAP_LEN);
   } else {
-    pr_err_ratelimited("l4shenanigan_encap_tcp: nfct_seqadj_ext_add skipped\n");
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_encap_tcp: nfct_seqadj_ext_add skipped\n");
   }
   return 0;
 }

@@ -94,7 +94,7 @@ static void __unfill_encap(struct sk_buff *skb, __be32 daddr, __be16 dport,
 static int __load_encap(const char *payload, __be32 *encap_daddr,
                         __be16 *encap_dport) {
   if (*(__be16 *)(&payload[0]) != htons(ENCAP_MAGIC)) {
-    pr_info_ratelimited("__load_encap: magic mismatch %x\n",
+    pr_err_ratelimited("__load_encap: magic mismatch %x\n",
                         *(__be16 *)(&payload[0]));
     return -1;
   }
@@ -128,7 +128,7 @@ int udp_load_encap(struct udphdr *udph, __be32 *encap_daddr,
                    __be16 *encap_dport) {
   char *payload = ((char *)udph) + sizeof(struct udphdr);
   if (ntohs(udph->len) < sizeof(struct udphdr) + ENCAP_LEN) {
-    pr_info_ratelimited("udp_load_encap: no room found for encap %d\n",
+    pr_err_ratelimited("udp_load_encap: no room found for encap %d\n",
                         ntohs(udph->len));
     return -1;
   }
