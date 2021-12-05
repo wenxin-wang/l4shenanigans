@@ -18,9 +18,9 @@
 #endif
 #include <net/netfilter/nf_conntrack_seqadj.h>
 
-#include "l4shenanigans_printk.h"
-#include "l4shenanigans_protocol.h"
-#include "l4shenanigans_uapi.h"
+#include "l4shenanigan_printk.h"
+#include "l4shenanigan_protocol.h"
+#include "l4shenanigan_uapi.h"
 
 static int l4shenanigan_encap_udp(struct sk_buff *skb, unsigned int udphoff) {
   struct udphdr *udph;

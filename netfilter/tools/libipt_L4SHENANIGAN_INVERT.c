@@ -5,7 +5,7 @@
 #include <xtables.h>
 // #include <linux/netfilter.h>
 
-#include "l4shenanigans_uapi.h"
+#include "l4shenanigan_uapi.h"
 
 static void l4shenanigan_invert_help(void) {
   printf("L4SHENANIGAN_INVERT target\n");

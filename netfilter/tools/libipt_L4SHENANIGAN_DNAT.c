@@ -5,7 +5,7 @@
 #include <xtables.h>
 // #include <linux/netfilter.h>
 
-#include "l4shenanigans_uapi.h"
+#include "l4shenanigan_uapi.h"
 
 static void l4shenanigan_dnat_help(void) {
   printf("L4SHENANIGAN_DNAT target\n");

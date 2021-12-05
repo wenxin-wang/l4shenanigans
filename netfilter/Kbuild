@@ -2,10 +2,10 @@ obj-$(if $(KBUILD_EXTMOD),m,$(CONFIG_L4SHENANIGAN)) += ipt_L4SHENANIGAN_INVERT.o
 ipt_L4SHENANIGAN_INVERT-objs += l4shenanigan_invert.o
 
 obj-$(if $(KBUILD_EXTMOD),m,$(CONFIG_L4SHENANIGAN)) += ipt_L4SHENANIGAN_ENCAP.o
-ipt_L4SHENANIGAN_ENCAP-objs += l4shenanigan_encap.o l4shenanigans_protocol.o
+ipt_L4SHENANIGAN_ENCAP-objs += l4shenanigan_encap.o l4shenanigan_protocol.o
 
 obj-$(if $(KBUILD_EXTMOD),m,$(CONFIG_L4SHENANIGAN)) += ipt_L4SHENANIGAN_DECAP.o
-ipt_L4SHENANIGAN_DECAP-objs += l4shenanigan_decap.o l4shenanigans_protocol.o
+ipt_L4SHENANIGAN_DECAP-objs += l4shenanigan_decap.o l4shenanigan_protocol.o
 
 obj-$(if $(KBUILD_EXTMOD),m,$(CONFIG_L4SHENANIGAN)) += ipt_L4SHENANIGAN_DNAT.o
-ipt_L4SHENANIGAN_DNAT-objs += l4shenanigan_dnat.o l4shenanigans_protocol.o
+ipt_L4SHENANIGAN_DNAT-objs += l4shenanigan_dnat.o l4shenanigan_protocol.o

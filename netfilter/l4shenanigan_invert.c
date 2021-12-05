@@ -13,7 +13,7 @@
 
 #include "compat/conntrack.h"
 #include "compat/highmem.h"
-#include "l4shenanigans_uapi.h"
+#include "l4shenanigan_uapi.h"
 
 #ifdef __LP64__
 /* 64-bit */

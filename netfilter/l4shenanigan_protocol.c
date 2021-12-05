@@ -6,7 +6,7 @@
 #include <net/udp.h>
 #include <uapi/linux/in.h>
 
-#include "l4shenanigans_protocol.h"
+#include "l4shenanigan_protocol.h"
 
 #define ENCAP_MAGIC 0xdb57
 
