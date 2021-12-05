@@ -132,10 +132,12 @@ static int l4shenanigan_decap_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   if (ct != NULL && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
                            ctinfo == IP_CT_RELATED_REPLY)) {
     if (!nfct_seqadj(ct) && !nfct_seqadj_ext_add(ct)) {
-      PR_ERR_RATELIMITED(skb, "l4shenanigan_encap_tcp: nfct_seqadj_ext_add failed\n");
+      PR_ERR_RATELIMITED(skb, "l4shenanigan_decap_tcp: nfct_seqadj_ext_add failed\n");
       return -1;
     }
     nf_ct_seqadj_set(ct, ctinfo, tcph->seq, -ENCAP_LEN);
+  } else {
+    PR_ERR_RATELIMITED(skb, "l4shenanigan_decap_tcp: nfct_seqadj_ext_add skipped\n");
   }
   return 0;
 }
