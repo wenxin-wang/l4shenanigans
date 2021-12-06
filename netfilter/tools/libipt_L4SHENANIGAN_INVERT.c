@@ -40,7 +40,7 @@ static void l4shenanigan_invert_print(const void * entry,
   UNUSED(numeric);
   const struct l4shenanigan_invert_info *invert_info =
       (const struct l4shenanigan_invert_info*)target->data;
-  printf(" xmask %u",
+  printf(" xmask %d",
          invert_info->xmask);
 }
 
@@ -50,7 +50,7 @@ l4shenanigan_invert_save(const void * entry,
   UNUSED(entry);
   const struct l4shenanigan_invert_info *invert_info =
       (const struct l4shenanigan_invert_info*)target->data;
-  printf(" --xmask %u",
+  printf(" --xmask %d",
          invert_info->xmask);
 }
 
