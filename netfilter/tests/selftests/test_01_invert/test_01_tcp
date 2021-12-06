@@ -17,8 +17,8 @@ trap 'cleanup $LINENO' ERR
 
 insmod $__SRC__/ipt_L4SHENANIGAN_INVERT.ko
 
-ip netns exec ns0 iptables -t mangle -A POSTROUTING -p tcp -j L4SHENANIGAN_INVERT
-ip netns exec ns1 iptables -t mangle -A PREROUTING -p tcp -j L4SHENANIGAN_INVERT
+ip netns exec ns0 iptables -t mangle -A POSTROUTING -p tcp -j L4SHENANIGAN_INVERT --xmask 255
+ip netns exec ns1 iptables -t mangle -A PREROUTING -p tcp -j L4SHENANIGAN_INVERT --xmask 255
 
 ip netns exec ns1 iptables -t mangle -A PREROUTING -p tcp -j NFLOG
 ip netns exec ns1 iptables -t mangle -A POSTROUTING -p tcp -j NFLOG

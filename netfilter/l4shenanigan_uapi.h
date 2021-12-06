@@ -8,4 +8,8 @@
 
 #define UNUSED(x) (void)(x)
 
+struct l4shenanigan_invert_info {
+  char xmask;
+};
+
 #endif /* L4SHENANIGANS_UAPI_H */

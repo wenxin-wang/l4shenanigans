@@ -30,12 +30,12 @@ insmod $__SRC__/ipt_L4SHENANIGAN_DECAP.ko
 insmod $__SRC__/ipt_L4SHENANIGAN_DNAT.ko
 
 ip netns exec ns0 iptables -t mangle -A OUTPUT -d 192.168.2.2 -p tcp -j L4SHENANIGAN_ENCAP
-ip netns exec ns0 iptables -t mangle -A OUTPUT -d 192.168.2.2 -p tcp -j L4SHENANIGAN_INVERT
+ip netns exec ns0 iptables -t mangle -A OUTPUT -d 192.168.2.2 -p tcp -j L4SHENANIGAN_INVERT --xmask 255
 ip netns exec ns0 iptables -t nat -A OUTPUT -d 192.168.2.2 -p tcp -j DNAT --to-destination 192.168.1.2:50000
 
 # ip netns exec ns1 iptables -t mangle -A PREROUTING -d 192.168.2.2 -p tcp -j MARK --set-mark 0x1
 ip netns exec ns1 iptables -t mangle -A PREROUTING -d 192.168.1.2 -p tcp --dport 50000 -j MARK --set-mark 0x1
-ip netns exec ns1 iptables -t mangle -A PREROUTING -m mark --mark 0x1 -j L4SHENANIGAN_INVERT
+ip netns exec ns1 iptables -t mangle -A PREROUTING -m mark --mark 0x1 -j L4SHENANIGAN_INVERT --xmask 255
 ip netns exec ns1 iptables -t nat -A PREROUTING -m mark --mark 0x1 -j L4SHENANIGAN_DNAT
 # ip netns exec ns1 iptables -t nat -A PREROUTING -m mark --mark 0x1 -p tcp -j DNAT --to-destination 192.168.2.2:5201
 ip netns exec ns1 iptables -t mangle -A POSTROUTING -m mark --mark 0x1 -j L4SHENANIGAN_DECAP

@@ -21,7 +21,7 @@ insmod $__SRC__/ipt_L4SHENANIGAN_ENCAP.ko
 insmod $__SRC__/ipt_L4SHENANIGAN_DECAP.ko
 insmod $__SRC__/ipt_L4SHENANIGAN_DNAT.ko
 
-ip netns exec ns0 iptables -t mangle -A PREROUTING -j L4SHENANIGAN_INVERT
+ip netns exec ns0 iptables -t mangle -A PREROUTING -j L4SHENANIGAN_INVERT --xmask 255
 ip netns exec ns0 iptables -t mangle -A PREROUTING -j L4SHENANIGAN_ENCAP
 ip netns exec ns0 iptables -t mangle -A POSTROUTING -j L4SHENANIGAN_DECAP
 ip netns exec ns0 iptables -t nat -A PREROUTING -j L4SHENANIGAN_DNAT

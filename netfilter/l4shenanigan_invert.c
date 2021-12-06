@@ -13,6 +13,7 @@
 
 #include "compat/conntrack.h"
 #include "compat/highmem.h"
+#include "l4shenanigan_printk.h"
 #include "l4shenanigan_uapi.h"
 
 #ifdef __LP64__
@@ -41,19 +42,26 @@
 //   }
 // }
 
-static uintptr_t invert_uintptr(uintptr_t val) { return XOR_MASK_PTR ^ val; }
+static uintptr_t get_ptr_xmask(char xmask) {
+  uintptr_t ptr_xmask;
+  memset(&ptr_xmask, xmask, sizeof(ptr_xmask));
+  return ptr_xmask;
+}
 
-static char invert_char(char val) { return XOR_MASK_BYTE ^ val; }
+static uintptr_t invert_uintptr(uintptr_t val, uintptr_t ptr_xmask) { return ptr_xmask ^ val; }
 
-static void invert_buf(char *buf, char *end) {
+static char invert_char(char val, char xmask) { return xmask ^ val; }
+
+static void invert_buf(char *buf, char *end, char xmask) {
+  uintptr_t ptr_xmask = get_ptr_xmask(xmask);
   for (; buf + sizeof(uintptr_t) - 1 < end; buf += sizeof(uintptr_t)) {
-    *(uintptr_t *)buf = invert_uintptr(*(uintptr_t *)buf);
+    *(uintptr_t *)buf = invert_uintptr(*(uintptr_t *)buf, ptr_xmask);
   }
   if (buf >= end) {
     return;
   }
   for (; buf < end; ++buf) {
-    *buf = invert_char(*buf);
+    *buf = invert_char(*buf, xmask);
   }
 }
 
@@ -69,13 +77,13 @@ static __wsum uintptr_csum_add(__wsum csum, uintptr_t val) {
 }
 
 static void invert_buf_with_csum(__sum16 *csum, struct sk_buff *skb, char *buf,
-                                 char *end) {
-  uintptr_t from = 0, to = 0;
+                                 char *end, char xmask) {
+  uintptr_t from = 0, to = 0, ptr_xmask = get_ptr_xmask(xmask);
   char *p_from = (char *)&from, *p_to = (char *)&to;
   __be32 from_csum = 0, to_csum = 0;
   for (; buf + sizeof(uintptr_t) - 1 < end; buf += sizeof(uintptr_t)) {
     from = *(uintptr_t *)buf;
-    to = invert_uintptr(from);
+    to = invert_uintptr(from, ptr_xmask);
     *(uintptr_t *)buf = to;
     from_csum = uintptr_csum_add(from_csum, from);
     to_csum = uintptr_csum_add(to_csum, to);
@@ -88,14 +96,14 @@ static void invert_buf_with_csum(__sum16 *csum, struct sk_buff *skb, char *buf,
   to = 0;
   for (; buf < end; ++buf, ++p_from, ++p_to) {
     *p_from = *buf;
-    *p_to = *buf = invert_char(*buf);
+    *p_to = *buf = invert_char(*buf, xmask);
   }
   from_csum = uintptr_csum_add(from_csum, from);
   to_csum = uintptr_csum_add(to_csum, to);
   inet_proto_csum_replace4(csum, skb, from_csum, to_csum, false);
 }
 
-static void invert_skb_unpaged_frags(struct sk_buff *skb, __sum16 *csum) {
+static void invert_skb_unpaged_frags(struct sk_buff *skb, __sum16 *csum, char xmask) {
   int i, len = skb->len;
   int seg_len = min_t(int, skb_headlen(skb), len);
   len -= seg_len;
@@ -115,9 +123,9 @@ static void invert_skb_unpaged_frags(struct sk_buff *skb, __sum16 *csum) {
       vaddr = kmap_atomic(p);
 #endif
       if (!csum) {
-        invert_buf(vaddr + p_off, vaddr + p_off + seg_len);
+        invert_buf(vaddr + p_off, vaddr + p_off + seg_len, xmask);
       } else {
-        invert_buf_with_csum(csum, skb, vaddr + p_off, vaddr + p_off + seg_len);
+        invert_buf_with_csum(csum, skb, vaddr + p_off, vaddr + p_off + seg_len, xmask);
       }
 #ifndef COMPAT_HIGHMEM_NO_KMAP_LOCAL_PAGE
       kunmap_local(vaddr);
@@ -131,28 +139,28 @@ static void invert_skb_unpaged_frags(struct sk_buff *skb, __sum16 *csum) {
   }
 }
 
-static int invert_frag_list_skb(struct sk_buff *skb, __sum16 *csum) {
+static int invert_frag_list_skb(struct sk_buff *skb, __sum16 *csum, char xmask) {
   char *payload = skb->data;
   int headlen;
 
   headlen = skb_headlen(skb);
   if (!csum) {
-    invert_buf(payload, payload + headlen);
-    invert_skb_unpaged_frags(skb, NULL);
+    invert_buf(payload, payload + headlen, xmask);
+    invert_skb_unpaged_frags(skb, NULL, xmask);
   } else {
-    invert_buf_with_csum(csum, skb, payload, payload + headlen);
-    invert_skb_unpaged_frags(skb, csum);
+    invert_buf_with_csum(csum, skb, payload, payload + headlen, xmask);
+    invert_skb_unpaged_frags(skb, csum, xmask);
   }
 
   if (skb_has_frag_list(skb)) {
     struct sk_buff *list_skb;
-    skb_walk_frags(skb, list_skb) { invert_frag_list_skb(list_skb, csum); }
+    skb_walk_frags(skb, list_skb) { invert_frag_list_skb(list_skb, csum, xmask); }
   }
 
   return 0;
 }
 
-static int l4shenanigan_invert_udp(struct sk_buff *skb, unsigned int udphoff) {
+static int l4shenanigan_invert_udp(struct sk_buff *skb, unsigned int udphoff, int xmask) {
   struct udphdr *udph;
   char *payload;
   int ret, headlen;
@@ -175,11 +183,11 @@ static int l4shenanigan_invert_udp(struct sk_buff *skb, unsigned int udphoff) {
   no_csum_update = skb->ip_summed == CHECKSUM_PARTIAL || udph->check == 0;
   if (no_csum_update) {
     // gso/gro enabled or udp zero checksum, no need to checksum
-    invert_buf(payload, payload + headlen);
-    invert_skb_unpaged_frags(skb, NULL);
+    invert_buf(payload, payload + headlen, xmask);
+    invert_skb_unpaged_frags(skb, NULL, xmask);
   } else {
-    invert_buf_with_csum(&udph->check, skb, payload, payload + headlen);
-    invert_skb_unpaged_frags(skb, &udph->check);
+    invert_buf_with_csum(&udph->check, skb, payload, payload + headlen, xmask);
+    invert_skb_unpaged_frags(skb, &udph->check, xmask);
     if (udph->check == 0) {
       udph->check = 0xffff;
     }
@@ -188,14 +196,14 @@ static int l4shenanigan_invert_udp(struct sk_buff *skb, unsigned int udphoff) {
   if (skb_has_frag_list(skb)) {
     struct sk_buff *list_skb;
     skb_walk_frags(skb, list_skb) {
-      invert_frag_list_skb(list_skb, no_csum_update ? NULL : &udph->check);
+      invert_frag_list_skb(list_skb, no_csum_update ? NULL : &udph->check, xmask);
     }
   }
 
   return 0;
 }
 
-static int l4shenanigan_invert_tcp(struct sk_buff *skb, unsigned int tcphoff) {
+static int l4shenanigan_invert_tcp(struct sk_buff *skb, unsigned int tcphoff, char xmask) {
   struct tcphdr *tcph;
   char *payload;
   int ret, headlen, tcp_hdrl;
@@ -224,17 +232,17 @@ static int l4shenanigan_invert_tcp(struct sk_buff *skb, unsigned int tcphoff) {
   no_csum_update = skb->ip_summed == CHECKSUM_PARTIAL;
   if (no_csum_update) {
     // gso/gro enabled, no need to checksum
-    invert_buf(payload, payload + headlen);
-    invert_skb_unpaged_frags(skb, NULL);
+    invert_buf(payload, payload + headlen, xmask);
+    invert_skb_unpaged_frags(skb, NULL, xmask);
   } else {
-    invert_buf_with_csum(&tcph->check, skb, payload, payload + headlen);
-    invert_skb_unpaged_frags(skb, &tcph->check);
+    invert_buf_with_csum(&tcph->check, skb, payload, payload + headlen, xmask);
+    invert_skb_unpaged_frags(skb, &tcph->check, xmask);
   }
 
   if (skb_has_frag_list(skb)) {
     struct sk_buff *list_skb;
     skb_walk_frags(skb, list_skb) {
-      invert_frag_list_skb(list_skb, no_csum_update ? NULL : &tcph->check);
+      invert_frag_list_skb(list_skb, no_csum_update ? NULL : &tcph->check, xmask);
     }
   }
 
@@ -243,6 +251,7 @@ static int l4shenanigan_invert_tcp(struct sk_buff *skb, unsigned int tcphoff) {
 
 static unsigned int l4shenanigan_invert_tg4(struct sk_buff *skb,
                                             const struct xt_action_param *par) {
+  const struct l4shenanigan_invert_info *invert_info = par->targinfo;
   struct iphdr *iph = ip_hdr(skb);
   int ret = 0;
 
@@ -255,10 +264,10 @@ static unsigned int l4shenanigan_invert_tg4(struct sk_buff *skb,
 
   switch (iph->protocol) {
   case IPPROTO_UDP:
-    ret = l4shenanigan_invert_udp(skb, iph->ihl * 4);
+    ret = l4shenanigan_invert_udp(skb, iph->ihl * 4, invert_info->xmask);
     break;
   case IPPROTO_TCP:
-    ret = l4shenanigan_invert_tcp(skb, iph->ihl * 4);
+    ret = l4shenanigan_invert_tcp(skb, iph->ihl * 4, invert_info->xmask);
     break;
   default:
     break;
@@ -284,7 +293,7 @@ static struct xt_target l4shenanigan_invert_tg4_regs[] __read_mostly = {{
     .name = INVERT_TARGET_NAME,
     .family = NFPROTO_IPV4,
     .target = l4shenanigan_invert_tg4,
-    .targetsize = 0,
+    .targetsize = sizeof(struct l4shenanigan_invert_info),
     .checkentry = l4shenanigan_invert_tg4_check,
     .destroy = l4shenanigan_invert_tg4_destroy,
     .me = THIS_MODULE,
