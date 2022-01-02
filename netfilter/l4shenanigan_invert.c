@@ -168,11 +168,13 @@ static int l4shenanigan_invert_udp(struct sk_buff *skb, unsigned int udphoff, in
 
   ret = skb_ensure_writable(skb, udphoff + (int)sizeof(struct udphdr));
   if (ret) {
+    PR_ERR_RATELIMITED(skb, "invert_udp failed to ensure writable %d", ret);
     return ret;
   }
 
   udph = (struct udphdr *)(skb_network_header(skb) + udphoff);
   if (ntohs(udph->len) < sizeof(struct udphdr)) {
+    PR_ERR_RATELIMITED(skb, "invert_udp not long enough %d", ntohs(udph->len));
     return -1;
   }
 
@@ -211,6 +213,7 @@ static int l4shenanigan_invert_tcp(struct sk_buff *skb, unsigned int tcphoff, ch
 
   ret = skb_ensure_writable(skb, tcphoff + (int)sizeof(struct tcphdr));
   if (ret) {
+    PR_ERR_RATELIMITED(skb, "invert_tcp failed to ensure writable %d", ret);
     return ret;
   }
 
@@ -218,11 +221,25 @@ static int l4shenanigan_invert_tcp(struct sk_buff *skb, unsigned int tcphoff, ch
   tcp_hdrl = tcph->doff * 4;
 
   if (tcp_hdrl < sizeof(struct tcphdr)) {
+    PR_ERR_RATELIMITED(skb, "invert_tcp not long enough %d", tcp_hdrl);
     return -1;
+  }
+
+  if (skb->sk && !tcph->syn) {
+    // already inverted
+    struct tcp_sock* tp = tcp_sk(skb->sk);
+    if (ntohl(tcph->seq) != tp->snd_nxt) {
+      PR_ERR_RATELIMITED(skb, "invert_tcp retrans skipped %u %u %u",
+                         ntohl(tcph->seq),
+                         ntohl(tcph->seq) + skb->len - tcphoff - tcp_hdrl,
+                         tp->snd_nxt);
+      return 0;
+    }
   }
 
   ret = skb_ensure_writable(skb, tcphoff + tcp_hdrl);
   if (ret) {
+    PR_ERR_RATELIMITED(skb, "invert_tcp failed to ensure full writable %d", ret);
     return ret;
   }
 
