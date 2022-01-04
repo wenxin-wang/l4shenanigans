@@ -7,7 +7,7 @@
 
 #define PR_ERR_RATELIMITED(skb, fmt, ...) {     \
         struct iphdr *iph = ip_hdr(skb);        \
-        pr_err_ratelimited("[%pI4 -> %pI4]" fmt,                     \
+        pr_err_ratelimited("[%pI4 -> %pI4] " fmt,                    \
                            &iph->saddr, &iph->daddr, ##__VA_ARGS__); \
 }
 
