@@ -225,13 +225,13 @@ static int l4shenanigan_invert_tcp(struct sk_buff *skb, unsigned int tcphoff, ch
     return -1;
   }
 
-  if (skb->sk && !tcph->syn) {
-    // already inverted
+  if (skb->sk && !tcph->syn && skb->len > tcphoff + tcp_hdrl) {
     struct tcp_sock* tp = tcp_sk(skb->sk);
     if (ntohl(tcph->seq) != tp->snd_nxt) {
+      // already inverted
       PR_ERR_RATELIMITED(skb, "invert_tcp retrans skipped %u %u %u",
                          ntohl(tcph->seq),
-                         ntohl(tcph->seq) + skb->len - tcphoff - tcp_hdrl,
+                         skb->len - tcphoff - tcp_hdrl,
                          tp->snd_nxt);
       return 0;
     }
